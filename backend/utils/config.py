@@ -111,6 +111,7 @@ class Configuration:
     # LLM API keys
     ANTHROPIC_API_KEY: str = None
     OPENAI_API_KEY: Optional[str] = None
+    OPENAI_API_BASE: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_API_BASE: Optional[str] = "https://openrouter.ai/api/v1"

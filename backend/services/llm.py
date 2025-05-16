@@ -44,7 +44,9 @@ def setup_api_keys() -> None:
             logger.debug(f"API key set for provider: {provider}")
         else:
             logger.warning(f"No API key found for provider: {provider}")
-
+    if config.OPENAI_API_KEY and config.OPENAI_API_BASE:
+       os.environ['OPENAI_API_BASE'] = config.OPENAI_API_BASE
+       logger.debug(f"Set OPENAI_API_BASE to {config.OPENAI_API_BASE}")
     # Set up OpenRouter API base if not already set
     if config.OPENROUTER_API_KEY and config.OPENROUTER_API_BASE:
         os.environ['OPENROUTER_API_BASE'] = config.OPENROUTER_API_BASE
