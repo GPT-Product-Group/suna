@@ -12,6 +12,8 @@ from utils.logger import logger
 import uuid
 import time
 from collections import OrderedDict
+from typing import Optional
+from utils.auth_utils import get_current_user_id_from_jwt
 
 # Import the agent API module
 from agent import api as agent_api
@@ -196,6 +198,31 @@ async def remove_custom_prompt(user_id: str, request: Request):
         )
     
     return {"message": "自定义prompt已删除"}
+
+@app.get("/prompt")
+async def get_prompt(user_id: str = Depends(get_current_user_id_from_jwt)):
+    """获取用户的自定义prompt"""
+    prompt = get_user_prompt(user_id)
+    return {"prompt": prompt}
+
+@app.post("/prompt")
+async def save_prompt(
+    prompt: str = Body(..., embed=True),
+    user_id: str = Depends(get_current_user_id_from_jwt)
+):
+    """保存用户的自定义prompt"""
+    success = save_user_prompt(user_id, prompt)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save prompt")
+    return {"success": True}
+
+@app.delete("/prompt")
+async def reset_prompt(user_id: str = Depends(get_current_user_id_from_jwt)):
+    """删除用户的自定义prompt，恢复使用默认prompt"""
+    success = delete_user_prompt(user_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to reset prompt")
+    return {"success": True}
 
 if __name__ == "__main__":
     import uvicorn
