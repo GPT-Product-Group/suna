@@ -2,13 +2,12 @@
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { useUser } from '@/components/AuthProvider';
 import { useEffect, useState } from 'react';
 
 export default function PromptSettingsPage() {
   const { user } = useUser();
-  const { toast } = useToast();
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -23,15 +22,13 @@ export default function PromptSettingsPage() {
         setPrompt(data.prompt || '');
       } catch (error) {
         console.error('Error fetching prompt:', error);
-        toast({
-          title: '获取提示词失败',
-          description: '请稍后重试',
-          variant: 'destructive',
+        toast.error('获取提示词失败', {
+          description: '请稍后重试'
         });
       }
     };
     fetchPrompt();
-  }, [toast]);
+  }, []);
 
   const handleSave = async () => {
     setLoading(true);
@@ -48,16 +45,13 @@ export default function PromptSettingsPage() {
         throw new Error('Failed to save prompt');
       }
 
-      toast({
-        title: '保存成功',
-        description: '提示词已更新',
+      toast.success('保存成功', {
+        description: '提示词已更新'
       });
     } catch (error) {
       console.error('Error saving prompt:', error);
-      toast({
-        title: '保存失败',
-        description: '请稍后重试',
-        variant: 'destructive',
+      toast.error('保存失败', {
+        description: '请稍后重试'
       });
     } finally {
       setLoading(false);
@@ -76,16 +70,13 @@ export default function PromptSettingsPage() {
       }
 
       setPrompt('');
-      toast({
-        title: '重置成功',
-        description: '提示词已恢复默认',
+      toast.success('重置成功', {
+        description: '提示词已恢复默认'
       });
     } catch (error) {
       console.error('Error resetting prompt:', error);
-      toast({
-        title: '重置失败',
-        description: '请稍后重试',
-        variant: 'destructive',
+      toast.error('重置失败', {
+        description: '请稍后重试'
       });
     } finally {
       setLoading(false);
