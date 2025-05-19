@@ -3,11 +3,11 @@
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { useUser } from '@/components/AuthProvider';
+import { useAuth } from '@/components/AuthProvider';
 import { useEffect, useState } from 'react';
 
 export default function PromptSettingsPage() {
-  const { user } = useUser();
+  const { user } = useAuth();
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
 
