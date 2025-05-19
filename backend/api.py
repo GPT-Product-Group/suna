@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -17,6 +17,7 @@ from collections import OrderedDict
 from agent import api as agent_api
 from sandbox import api as sandbox_api
 from services import billing as billing_api
+from agent.prompt import get_user_prompt, save_user_prompt, delete_user_prompt
 
 # Load environment variables (these will be available through config)
 load_dotenv()
@@ -145,6 +146,56 @@ async def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "instance_id": instance_id
     }
+
+# 添加自定义prompt管理的API端点
+@app.get("/api/custom-prompt/{user_id}", tags=["Custom Prompt"])
+async def get_custom_prompt(user_id: str, request: Request):
+    """获取指定用户的自定义prompt"""
+    # 可以在这里添加认证检查，确保只有用户本人或管理员可以访问
+    
+    prompt = get_user_prompt(user_id)
+    if prompt is None:
+        return JSONResponse(
+            status_code=404,
+            content={"message": "未找到自定义prompt"}
+        )
+    
+    return {"prompt": prompt}
+
+@app.post("/api/custom-prompt/{user_id}", tags=["Custom Prompt"])
+async def set_custom_prompt(user_id: str, request: Request, data: dict = Body(...)):
+    """设置指定用户的自定义prompt"""
+    # 可以在这里添加认证检查，确保只有用户本人或管理员可以设置
+    
+    prompt_text = data.get("prompt")
+    if not prompt_text:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "提供的prompt不能为空"}
+        )
+    
+    success = save_user_prompt(user_id, prompt_text)
+    if not success:
+        return JSONResponse(
+            status_code=500,
+            content={"message": "保存自定义prompt失败"}
+        )
+    
+    return {"message": "自定义prompt设置成功"}
+
+@app.delete("/api/custom-prompt/{user_id}", tags=["Custom Prompt"])
+async def remove_custom_prompt(user_id: str, request: Request):
+    """删除指定用户的自定义prompt"""
+    # 可以在这里添加认证检查，确保只有用户本人或管理员可以删除
+    
+    success = delete_user_prompt(user_id)
+    if not success:
+        return JSONResponse(
+            status_code=500,
+            content={"message": "删除自定义prompt失败"}
+        )
+    
+    return {"message": "自定义prompt已删除"}
 
 if __name__ == "__main__":
     import uvicorn

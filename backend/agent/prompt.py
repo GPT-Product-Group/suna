@@ -1,5 +1,9 @@
 import datetime
+import os
+import json
+from typing import Optional, Dict, Any
 
+# 基础系统 prompt
 SYSTEM_PROMPT = f"""
 You are Suna.so, an autonomous AI Agent created by the Kortix team.
 
@@ -594,9 +598,99 @@ For casual conversation and social interactions:
   * Redundant verifications after completion are prohibited
   """
 
+# 自定义 prompt 存储目录
+CUSTOM_PROMPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'custom_prompts')
 
-def get_system_prompt():
+# 确保自定义 prompt 目录存在
+os.makedirs(CUSTOM_PROMPTS_DIR, exist_ok=True)
+
+def get_user_prompt(user_id: Optional[str] = None) -> Optional[str]:
+    """
+    获取用户自定义的 prompt
+    
+    Args:
+        user_id: 用户ID
+        
+    Returns:
+        如果存在自定义 prompt，返回自定义 prompt 文本；否则返回 None
+    """
+    if not user_id:
+        return None
+        
+    prompt_path = os.path.join(CUSTOM_PROMPTS_DIR, f"{user_id}.txt")
+    
+    if os.path.exists(prompt_path):
+        try:
+            with open(prompt_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            print(f"Error reading custom prompt for user {user_id}: {e}")
+            return None
+    
+    return None
+
+def save_user_prompt(user_id: str, prompt_text: str) -> bool:
+    """
+    保存用户自定义 prompt
+    
+    Args:
+        user_id: 用户ID
+        prompt_text: prompt 文本内容
+        
+    Returns:
+        保存是否成功
+    """
+    if not user_id:
+        return False
+        
+    prompt_path = os.path.join(CUSTOM_PROMPTS_DIR, f"{user_id}.txt")
+    
+    try:
+        with open(prompt_path, 'w', encoding='utf-8') as f:
+            f.write(prompt_text)
+        return True
+    except Exception as e:
+        print(f"Error saving custom prompt for user {user_id}: {e}")
+        return False
+
+def delete_user_prompt(user_id: str) -> bool:
+    """
+    删除用户自定义 prompt
+    
+    Args:
+        user_id: 用户ID
+        
+    Returns:
+        删除是否成功
+    """
+    if not user_id:
+        return False
+        
+    prompt_path = os.path.join(CUSTOM_PROMPTS_DIR, f"{user_id}.txt")
+    
+    if os.path.exists(prompt_path):
+        try:
+            os.remove(prompt_path)
+            return True
+        except Exception as e:
+            print(f"Error deleting custom prompt for user {user_id}: {e}")
+            return False
+    
+    return True  # 文件不存在也视为删除成功
+
+def get_system_prompt(user_id: Optional[str] = None) -> str:
     '''
-    Returns the system prompt
+    返回系统 prompt，如果指定了用户 ID 且存在自定义 prompt，则使用自定义 prompt
+    
+    Args:
+        user_id: 可选的用户ID
+        
+    Returns:
+        系统 prompt 字符串
     '''
+    if user_id:
+        custom_prompt = get_user_prompt(user_id)
+        if custom_prompt:
+            return custom_prompt
+    
     return SYSTEM_PROMPT 
