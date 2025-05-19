@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase/client'
-import { getUser } from '@/lib/auth'
+import { getSupabaseServerClient } from '@/lib/supabase/server'
+
+async function getUser() {
+  const supabase = getSupabaseServerClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (error || !user) return null
+  return user
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,7 +18,7 @@ export async function GET(req: NextRequest) {
 
     const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/prompt`, {
       headers: {
-        'Authorization': `Bearer ${user.access_token}`
+        'Authorization': `Bearer ${user.id}`
       }
     })
 
@@ -42,7 +49,7 @@ export async function POST(req: NextRequest) {
     const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/prompt`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${user.access_token}`,
+        'Authorization': `Bearer ${user.id}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ prompt })
@@ -72,7 +79,7 @@ export async function DELETE(req: NextRequest) {
     const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/prompt`, {
       method: 'DELETE',
       headers: {
-        'Authorization': `Bearer ${user.access_token}`
+        'Authorization': `Bearer ${user.id}`
       }
     })
 
