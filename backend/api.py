@@ -199,13 +199,13 @@ async def remove_custom_prompt(user_id: str, request: Request):
     
     return {"message": "自定义prompt已删除"}
 
-@app.get("/prompt")
+@app.get("/api/prompt")
 async def get_prompt(user_id: str = Depends(get_current_user_id_from_jwt)):
     """获取用户的自定义prompt"""
     prompt = get_user_prompt(user_id)
     return {"prompt": prompt}
 
-@app.post("/prompt")
+@app.post("/api/prompt")
 async def save_prompt(
     prompt: str = Body(..., embed=True),
     user_id: str = Depends(get_current_user_id_from_jwt)
@@ -216,7 +216,7 @@ async def save_prompt(
         raise HTTPException(status_code=500, detail="Failed to save prompt")
     return {"success": True}
 
-@app.delete("/prompt")
+@app.delete("/api/prompt")
 async def reset_prompt(user_id: str = Depends(get_current_user_id_from_jwt)):
     """删除用户的自定义prompt，恢复使用默认prompt"""
     success = delete_user_prompt(user_id)
