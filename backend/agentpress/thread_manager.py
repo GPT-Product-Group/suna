@@ -201,7 +201,7 @@ class ThreadManager:
             processor_config.max_xml_tool_calls = max_xml_tool_calls
 
         # Create a working copy of the system prompt to potentially modify
-        logger.info(f"run thread system_prompt: {system_prompt}")
+        #logger.info(f"run thread system_prompt: {system_prompt}")
         working_system_prompt = system_prompt.copy()
 
         # Add XML examples to system prompt if requested, do this only ONCE before the loop
