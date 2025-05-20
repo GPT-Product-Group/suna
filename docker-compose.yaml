@@ -20,6 +20,7 @@ services:
       - "8100:8000"
     volumes:
       - ./backend/.env:/app/.env:ro
+      - backend-data:/data
     environment:
       - ENV_MODE=local
       - REDIS_HOST=redis
@@ -46,3 +47,4 @@ services:
 
 volumes:
   redis-data:
+  backend-data:
