@@ -92,7 +92,7 @@ async def run_agent(
 
     iteration_count = 0
     continue_execution = True
-
+    logger.info(f"system_message: {system_message}")
     while continue_execution and iteration_count < max_iterations:
         iteration_count += 1
         logger.info(f"🔄 Running iteration {iteration_count} of {max_iterations}...")
