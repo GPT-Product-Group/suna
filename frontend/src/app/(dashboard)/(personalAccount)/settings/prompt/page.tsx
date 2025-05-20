@@ -14,7 +14,11 @@ export default function PromptSettingsPage() {
   useEffect(() => {
     const fetchPrompt = async () => {
       try {
-        const response = await fetch('/api/prompt');
+        const response = await fetch('/api/prompt', {
+          headers: {
+            'Authorization': `Bearer ${user?.id}`
+          }
+        });
         if (!response.ok) {
           throw new Error('Failed to fetch prompt');
         }
@@ -27,16 +31,26 @@ export default function PromptSettingsPage() {
         });
       }
     };
-    fetchPrompt();
-  }, []);
+    if (user?.id) {
+      fetchPrompt();
+    }
+  }, [user?.id]);
 
   const handleSave = async () => {
+    if (!user?.id) {
+      toast.error('未登录', {
+        description: '请先登录后再试'
+      });
+      return;
+    }
+    
     setLoading(true);
     try {
       const response = await fetch('/api/prompt', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.id}`
         },
         body: JSON.stringify({ prompt }),
       });
@@ -59,10 +73,20 @@ export default function PromptSettingsPage() {
   };
 
   const handleReset = async () => {
+    if (!user?.id) {
+      toast.error('未登录', {
+        description: '请先登录后再试'
+      });
+      return;
+    }
+    
     setLoading(true);
     try {
       const response = await fetch('/api/prompt', {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${user.id}`
+        }
       });
 
       if (!response.ok) {
