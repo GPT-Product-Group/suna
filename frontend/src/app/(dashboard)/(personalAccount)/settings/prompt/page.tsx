@@ -5,6 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { useAuth } from '@/components/AuthProvider';
 import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 export default function PromptSettingsPage() {
   const { user } = useAuth();
@@ -14,9 +15,16 @@ export default function PromptSettingsPage() {
   useEffect(() => {
     const fetchPrompt = async () => {
       try {
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session?.access_token) {
+          throw new Error('No access token available');
+        }
+
         const response = await fetch('/api/prompt', {
           headers: {
-            'Authorization': `Bearer ${user?.id}`
+            'Authorization': `Bearer ${session.access_token}`
           }
         });
         if (!response.ok) {
@@ -46,11 +54,18 @@ export default function PromptSettingsPage() {
     
     setLoading(true);
     try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error('No access token available');
+      }
+
       const response = await fetch('/api/prompt', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.id}`
+          'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({ prompt }),
       });
@@ -82,10 +97,17 @@ export default function PromptSettingsPage() {
     
     setLoading(true);
     try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error('No access token available');
+      }
+
       const response = await fetch('/api/prompt', {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${user.id}`
+          'Authorization': `Bearer ${session.access_token}`
         }
       });
 
