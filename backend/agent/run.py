@@ -80,7 +80,7 @@ async def run_agent(
         thread_manager.add_tool(DataProvidersTool)
 
     # Get system prompt with user_id for potential custom prompt
-    system_message = get_system_prompt(user_id)
+    system_message_user = get_system_prompt(user_id)
 
     # Only include sample response if the model name does not contain "anthropic"
     if "anthropic" not in model_name.lower():
@@ -88,11 +88,13 @@ async def run_agent(
         with open(sample_response_path, 'r') as file:
             sample_response = file.read()
         
-        system_message += "\n\n <sample_assistant_response>" + sample_response + "</sample_assistant_response>"
+        system_message = { "role": "system", "content": system_message_user + "\n\n <sample_assistant_response>" + sample_response + "</sample_assistant_response>" }
+    else:
+        system_message = { "role": "system", "content": system_message_user }
 
     iteration_count = 0
     continue_execution = True
-    logger.info(f"system_message: {system_message}")
+    #logger.info(f"system_message: {system_message}")
     while continue_execution and iteration_count < max_iterations:
         iteration_count += 1
         logger.info(f"🔄 Running iteration {iteration_count} of {max_iterations}...")
