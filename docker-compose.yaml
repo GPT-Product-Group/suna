@@ -20,7 +20,7 @@ services:
       - "8100:8000"
     volumes:
       - ./backend/.env:/app/.env:ro
-      - backend-data:/data
+      - ./data:/app/data
     environment:
       - ENV_MODE=local
       - REDIS_HOST=redis
@@ -30,6 +30,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    user: "1000:1000"
 
   frontend:
     build:
@@ -48,3 +49,8 @@ services:
 volumes:
   redis-data:
   backend-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/suna/backend-data

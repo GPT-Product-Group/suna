@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create non-root user and set up directories
 RUN useradd -m -u 1000 appuser && \
     mkdir -p /app/logs && \
+    mkdir -p /app/data && \
     chown -R appuser:appuser /app
 
 # Install Python dependencies

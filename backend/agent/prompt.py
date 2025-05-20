@@ -600,7 +600,7 @@ For casual conversation and social interactions:
   """
 
 # 自定义 prompt 存储目录
-CUSTOM_PROMPTS_DIR = os.path.join('/data', 'custom_prompts')
+CUSTOM_PROMPTS_DIR = os.path.join('/app/data', 'custom_prompts')
 
 # 确保自定义 prompt 目录存在
 os.makedirs(CUSTOM_PROMPTS_DIR, exist_ok=True)
