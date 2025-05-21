@@ -19,16 +19,16 @@ export interface ModelOption {
 
 export const MODEL_OPTIONS: ModelOption[] = [
   { 
-    id: 'deepseek', 
-    label: 'Free', 
+    id: 'gpt-4.1', 
+    label: 'gpt-4.1', 
     requiresSubscription: false,
-    description: 'Limited capabilities. Upgrade for full performance.'
+    description: 'gpt-4.1'
   },
   { 
     id: 'sonnet-3.7', 
-    label: 'Standard', 
+    label: 'sonnet-3.7', 
     requiresSubscription: true, 
-    description: 'Excellent for complex tasks and nuanced conversations'
+    description: 'sonnet-3.7'
   },
 ];
 
