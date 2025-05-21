@@ -38,7 +38,7 @@ export const MODEL_OPTIONS: ModelOption[] = [
   },
   { 
     id: 'openrouter/sonnet-3.7', 
-    label: 'sonnet-3.7', 
+    label: 'openrouter/sonnet-3.7', 
     requiresSubscription: true, 
     description: 'openrouter/sonnet-3.7'
   },
