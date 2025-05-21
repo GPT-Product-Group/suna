@@ -25,10 +25,22 @@ export const MODEL_OPTIONS: ModelOption[] = [
     description: 'gpt-4.1'
   },
   { 
-    id: 'openrouter/sonnet-3.7', 
+    id: 'openrouter/gpt-4.1', 
+    label: 'openrouter/gpt-4.1', 
+    requiresSubscription: false,
+    description: 'openrouter/gpt-4.1'
+  },
+  { 
+    id: 'sonnet-3.7', 
     label: 'sonnet-3.7', 
     requiresSubscription: true, 
     description: 'sonnet-3.7'
+  },
+  { 
+    id: 'openrouter/sonnet-3.7', 
+    label: 'sonnet-3.7', 
+    requiresSubscription: true, 
+    description: 'openrouter/sonnet-3.7'
   },
 ];
 

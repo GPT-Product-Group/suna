@@ -47,6 +47,7 @@ MODEL_NAME_ALIASES = {
     # Also include full names as keys to ensure they map to themselves
     "anthropic/claude-3-7-sonnet-latest": "anthropic/claude-3-7-sonnet-latest",
     "openai/gpt-4.1-2025-04-14": "openai/gpt-4.1-2025-04-14",
+    "openrouter/gpt-4.1": "openrouter/openai/gpt-4.1",
     "openai/gpt-4o": "openai/gpt-4o",
     "openai/gpt-4-turbo": "openai/gpt-4-turbo",
     "openai/gpt-4": "openai/gpt-4",
