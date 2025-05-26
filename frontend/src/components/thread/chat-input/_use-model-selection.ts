@@ -42,6 +42,12 @@ export const MODEL_OPTIONS: ModelOption[] = [
     requiresSubscription: true, 
     description: 'openrouter/sonnet-3.7'
   },
+  { 
+    id: 'openrouter/sonnet-4', 
+    label: 'openrouter/sonnet-4', 
+    requiresSubscription: true, 
+    description: 'openrouter/sonnet-4'
+  },
 ];
 
 export const canAccessModel = (

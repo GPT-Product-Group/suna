@@ -56,6 +56,7 @@ MODEL_NAME_ALIASES = {
     "deepseek/deepseek-chat": "openrouter/deepseek/deepseek-chat",
     "xai/grok-3-mini-fast-beta": "xai/grok-3-mini-fast-beta",
     "openrouter/sonnet-3.7": "openrouter/anthropic/claude-3.7-sonnet",
+    "openrouter/sonnet-4": "openrouter/anthropic/claude-sonnet-4",
 }
 
 class AgentStartRequest(BaseModel):
