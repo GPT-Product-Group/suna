@@ -105,29 +105,29 @@ MODEL_ACCESS_TIERS = {
 }
 MODEL_NAME_ALIASES = {
     # Short names to full names
-    "sonnet-3.7": "anthropic/claude-3-7-sonnet-latest",
-    "sonnet-3.5": "anthropic/claude-3-5-sonnet-latest",
-    "haiku-3.5": "anthropic/claude-3-5-haiku-latest",
-    "claude-sonnet-4": "anthropic/claude-sonnet-4-20250514",
+    # "sonnet-3.7": "anthropic/claude-3-7-sonnet-latest",
+    # "sonnet-3.5": "anthropic/claude-3-5-sonnet-latest",
+    # "haiku-3.5": "anthropic/claude-3-5-haiku-latest",
+    # "claude-sonnet-4": "anthropic/claude-sonnet-4-20250514",
     # "gpt-4.1": "openai/gpt-4.1-2025-04-14",  # Commented out in constants.py
-    "gpt-4o": "openai/gpt-4o",
-    "gpt-4.1": "openai/gpt-4.1",
-    "gpt-4.1-mini": "gpt-4.1-mini",
+    # "gpt-4o": "openai/gpt-4o",
+    # "gpt-4.1": "openai/gpt-4.1",
+    # "gpt-4.1-mini": "gpt-4.1-mini",
     # "gpt-4-turbo": "openai/gpt-4-turbo",  # Commented out in constants.py
     # "gpt-4": "openai/gpt-4",  # Commented out in constants.py
     # "gemini-flash-2.5": "openrouter/google/gemini-2.5-flash-preview",  # Commented out in constants.py
     # "grok-3": "xai/grok-3-fast-latest",  # Commented out in constants.py
-    "deepseek": "openrouter/deepseek/deepseek-chat",
+    #"openrouter/deepseek": "openrouter/deepseek/deepseek-chat",
     # "deepseek-r1": "openrouter/deepseek/deepseek-r1",
     # "grok-3-mini": "xai/grok-3-mini-fast-beta",  # Commented out in constants.py
-    "qwen3": "openrouter/qwen/qwen3-235b-a22b",  # Commented out in constants.py
-    "gemini-flash-2.5": "openrouter/google/gemini-2.5-flash-preview-05-20",
-    "gemini-2.5-flash:thinking":"openrouter/google/gemini-2.5-flash-preview-05-20:thinking",
+    # "qwen3": "openrouter/qwen/qwen3-235b-a22b",  # Commented out in constants.py
+    # "gemini-flash-2.5": "openrouter/google/gemini-2.5-flash-preview-05-20",
+    # "gemini-2.5-flash:thinking":"openrouter/google/gemini-2.5-flash-preview-05-20:thinking",
     
     # "google/gemini-2.5-flash-preview":"openrouter/google/gemini-2.5-flash-preview",
     # "google/gemini-2.5-flash-preview:thinking":"openrouter/google/gemini-2.5-flash-preview:thinking",
-    "google/gemini-2.5-pro-preview":"openrouter/google/gemini-2.5-pro-preview",
-    "deepseek/deepseek-chat-v3-0324":"openrouter/deepseek/deepseek-chat-v3-0324",
+    # "google/gemini-2.5-pro-preview":"openrouter/google/gemini-2.5-pro-preview",
+    "openrouter/deepseek/deepseek-chat-v3-0324":"openrouter/deepseek/deepseek-chat-v3-0324",
     "openrouter/sonnet-3.7": "openrouter/anthropic/claude-3.7-sonnet",
     "openrouter/sonnet-4": "openrouter/anthropic/claude-sonnet-4",
     "openrouter/gpt-4.1": "openrouter/openai/gpt-4.1",
