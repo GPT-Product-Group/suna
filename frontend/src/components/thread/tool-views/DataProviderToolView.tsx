@@ -1,260 +1,299 @@
-import React from 'react';
-import { ToolViewProps } from './types';
-import { formatTimestamp, getToolTitle } from './utils';
-import { getToolIcon } from '../utils';
+import React, { useState, useEffect } from 'react';
 import {
-  CircleDashed,
+  Database,
   CheckCircle,
   AlertTriangle,
-  Network,
-  Database,
+  Loader2,
+  Briefcase,
+  Home,
+  ShoppingBag,
+  TrendingUp,
+  Users,
+  MessageCircle,
+  Code,
+  Settings,
+  Play,
+  ChevronRight,
+  Search,
+  Globe
 } from 'lucide-react';
+import { ToolViewProps } from './types';
+import {
+  formatTimestamp,
+  normalizeContentToString,
+} from './utils';
 import { cn } from '@/lib/utils';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
-export function DataProviderToolView({
-  name = 'unknown',
+function parseDataProviderCall(message) {
+  // Match the opening tag and capture service_name & route in *any* order
+  const tagRegex = /<execute-data-provider-call\b(?=[^>]*\bservice_name="([^"]+)")(?=[^>]*\broute="([^"]+)")[^>]*>/;
+  const tagMatch = message.match(tagRegex);
+
+  let serviceName = null;
+  let route = null;
+
+  if (tagMatch) {
+    // tagMatch[1] is service_name, tagMatch[2] is route
+    serviceName = tagMatch[1];
+    route = tagMatch[2];
+  }
+
+  // Capture the JSON payload between the tags
+  const contentRegex = /<execute-data-provider-call\b[^>]*>\s*(\{[\s\S]*?\})\s*<\/execute-data-provider-call>/;
+  const contentMatch = message.match(contentRegex);
+
+  let jsonContent = null;
+  if (contentMatch) {
+    let jsonString = contentMatch[1].trim();
+    // unescape any \" sequences if needed
+    jsonString = jsonString.replace(/\\"/g, '"');
+    try {
+      jsonContent = JSON.parse(jsonString);
+    } catch (e) {
+      console.error('Failed to parse JSON content:', e);
+      console.error('JSON string was:', jsonString);
+      jsonContent = jsonString;
+    }
+  }
+
+  return { serviceName, route, jsonContent };
+}
+
+
+
+const PROVIDER_CONFIG = {
+  'linkedin': {
+    name: 'LinkedIn Data Provider',
+    icon: Users,
+    color: 'from-blue-500 to-blue-600',
+    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+    textColor: 'text-blue-700 dark:text-blue-300',
+    borderColor: 'border-blue-200 dark:border-blue-800'
+  },
+  'twitter': {
+    name: 'Twitter Data Provider', 
+    icon: MessageCircle,
+    color: 'from-sky-400 to-sky-500',
+    bgColor: 'bg-sky-50 dark:bg-sky-900/20',
+    textColor: 'text-sky-700 dark:text-sky-300',
+    borderColor: 'border-sky-200 dark:border-sky-800'
+  },
+  'zillow': {
+    name: 'Zillow Data Provider',
+    icon: Home,
+    color: 'from-emerald-500 to-emerald-600',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
+    textColor: 'text-emerald-700 dark:text-emerald-300',
+    borderColor: 'border-emerald-200 dark:border-emerald-800'
+  },
+  'amazon': {
+    name: 'Amazon Data Provider',
+    icon: ShoppingBag,
+    color: 'from-orange-500 to-orange-600',
+    bgColor: 'bg-orange-50 dark:bg-orange-900/20',
+    textColor: 'text-orange-700 dark:text-orange-300',
+    borderColor: 'border-orange-200 dark:border-orange-800'
+  },
+  'yahoo_finance': {
+    name: 'Yahoo Finance Data Provider',
+    icon: TrendingUp,
+    color: 'from-purple-500 to-purple-600',
+    bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+    textColor: 'text-purple-700 dark:text-purple-300',
+    borderColor: 'border-purple-200 dark:border-purple-800'
+  },
+  'active_jobs': {
+    name: 'Active Jobs Data Provider',
+    icon: Briefcase,
+    color: 'from-indigo-500 to-indigo-600',
+    bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+    textColor: 'text-indigo-700 dark:text-indigo-300',
+    borderColor: 'border-indigo-200 dark:border-indigo-800'
+  }
+};
+
+export function ExecuteDataProviderCallToolView({
+  name = 'execute-data-provider-call',
   assistantContent,
   toolContent,
-  isSuccess = true,
-  isStreaming = false,
   assistantTimestamp,
   toolTimestamp,
+  isSuccess = true,
+  isStreaming = false,
 }: ToolViewProps) {
-  const toolTitle = getToolTitle(name);
-  const Icon = getToolIcon(name) || Network;
+  const [parsedCall, setParsedCall] = useState<{
+    serviceName: string | null;
+    route: string | null;
+    jsonContent: any;
+  }>({ serviceName: null, route: null, jsonContent: null });
 
-  // Extract data from the assistant content (request)
-  const extractRequest = React.useMemo(() => {
-    if (!assistantContent) return null;
+  useEffect(() => {
+    const contentStr = normalizeContentToString(assistantContent || toolContent);
+    const parsed = parseDataProviderCall(contentStr || '');
+    setParsedCall(parsed);
+  }, [assistantContent, toolContent]);
 
-    try {
-      // Parse assistant content as JSON
-      const parsed = JSON.parse(assistantContent);
-
-      if (parsed.content) {
-        // Try to extract content from service name and route
-        const serviceMatch = parsed.content.match(
-          /service_name=\\?"([^"\\]+)\\?"/,
-        );
-        const routeMatch = parsed.content.match(/route=\\?"([^"\\]+)\\?"/);
-
-        // For execute-data-provider-call, also extract the payload
-        let payload = null;
-        if (name === 'execute-data-provider-call') {
-          const payloadMatch = parsed.content.match(/{([^}]+)}/);
-          if (payloadMatch) {
-            try {
-              // Try to parse the payload JSON
-              payload = JSON.parse(`{${payloadMatch[1]}}`);
-            } catch (e) {
-              payload = payloadMatch[1];
-            }
-          }
-        }
-
-        return {
-          service: serviceMatch ? serviceMatch[1] : undefined,
-          route: routeMatch ? routeMatch[1] : undefined,
-          payload,
-        };
-      }
-    } catch (e) {
-      console.error('Error parsing assistant content:', e);
-    }
-
-    return null;
-  }, [assistantContent, name]);
-
-  // Parse the tool response
-  const parsedResponse = React.useMemo(() => {
-    if (!toolContent || isStreaming) return null;
-
-    try {
-      // Extract content from tool_result tags if present
-      const toolResultMatch = toolContent.match(
-        /<tool_result>\s*<[^>]+>([\s\S]*?)<\/[^>]+>\s*<\/tool_result>/,
-      );
-      let contentToFormat = toolResultMatch ? toolResultMatch[1] : toolContent;
-
-      // Look for a ToolResult pattern
-      const toolResultOutputMatch = contentToFormat.match(
-        /ToolResult\(success=.+?, output='([\s\S]*?)'\)/,
-      );
-      if (toolResultOutputMatch) {
-        contentToFormat = toolResultOutputMatch[1];
-      }
-
-      // Try to parse as JSON for pretty formatting
-      try {
-        // Replace escaped quotes and newlines
-        contentToFormat = contentToFormat
-          .replace(/\\"/g, '"')
-          .replace(/\\n/g, '\n');
-        const parsedJson = JSON.parse(contentToFormat);
-        return JSON.stringify(parsedJson, null, 2);
-      } catch (e) {
-        // If not valid JSON, return as is
-        return contentToFormat;
-      }
-    } catch (e) {
-      return toolContent;
-    }
-  }, [toolContent, isStreaming]);
+  const providerKey = parsedCall.serviceName?.toLowerCase() as keyof typeof PROVIDER_CONFIG;
+  const providerConfig = providerKey && PROVIDER_CONFIG[providerKey] 
+    ? PROVIDER_CONFIG[providerKey] 
+    : PROVIDER_CONFIG['linkedin'];
+  
+  const IconComponent = providerConfig.icon;
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 p-4 overflow-auto">
-        <div className="border border-zinc-200 dark:border-zinc-800 rounded-md overflow-hidden h-full flex flex-col">
-          {/* Header - exactly like other tool views */}
-          <div className="flex items-center p-2 bg-zinc-100 dark:bg-zinc-900 justify-between border-b border-zinc-200 dark:border-zinc-800">
-            <div className="flex items-center">
-              <Database className="h-4 w-4 mr-2 text-zinc-600 dark:text-zinc-400" />
-              <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                {toolTitle}
-              </span>
+    <Card className="gap-0 flex border shadow-none border-t border-b-0 border-x-0 p-0 rounded-none flex-col h-full overflow-hidden bg-white dark:bg-zinc-950">
+      <CardHeader className="h-14 bg-zinc-50/80 dark:bg-zinc-900/80 backdrop-blur-sm border-b p-2 px-4 space-y-2">
+        <div className="flex flex-row items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="relative p-2 rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/20">
+              <Globe className="w-5 h-5 text-blue-500 dark:text-blue-400" />
             </div>
-
-            {!isStreaming && (
-              <span
-                className={cn(
-                  'text-xs flex items-center',
-                  isSuccess
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-red-600 dark:text-red-400',
-                )}
-              >
-                <span className="h-1.5 w-1.5 rounded-full mr-1.5 bg-current"></span>
-                {isSuccess ? 'Success' : 'Failed'}
-              </span>
-            )}
+            <div>
+              <CardTitle className="text-base font-medium text-zinc-900 dark:text-zinc-100">
+                Data Provider
+              </CardTitle>
+            </div>
           </div>
-
-          {/* Request Info Bar - match style with file paths in other tools */}
-          {extractRequest && (
-            <div className="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
-              <code className="text-xs font-mono text-zinc-700 dark:text-zinc-300">
-                {extractRequest.service}
-                {extractRequest.route && `/${extractRequest.route}`}
-              </code>
-            </div>
+          
+          {!isStreaming && (
+            <Badge 
+              variant="secondary" 
+              className={cn(
+                "text-xs font-medium",
+                isSuccess 
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800" 
+                  : "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800"
+              )}
+            >
+              {isSuccess ? (
+                <CheckCircle className="h-3 w-3 mr-1" />
+              ) : (
+                <AlertTriangle className="h-3 w-3 mr-1" />
+              )}
+              {isSuccess ? 'Executed' : 'Failed'}
+            </Badge>
           )}
+        </div>
+      </CardHeader>
 
-          {/* Content Container */}
-          {!isStreaming ? (
-            <div className="flex-1 bg-white dark:bg-zinc-950 font-mono text-sm">
-              <div className="p-3">
-                {/* Request section - show payload if available */}
-                {extractRequest?.payload && (
-                  <div className="mb-4">
-                    <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">
-                      Request Payload
-                    </div>
-                    <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md">
-                      <pre className="p-3 text-xs overflow-auto whitespace-pre-wrap text-zinc-800 dark:text-zinc-300 font-mono">
-                        {typeof extractRequest.payload === 'object'
-                          ? JSON.stringify(extractRequest.payload, null, 2)
-                          : extractRequest.payload}
-                      </pre>
-                    </div>
-                  </div>
-                )}
-
-                {/* Response section */}
-                {parsedResponse && (
-                  <div>
-                    <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">
-                      Response Data
-                    </div>
-                    <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md">
-                      <pre className="p-3 text-xs overflow-auto whitespace-pre-wrap text-zinc-800 dark:text-zinc-300 font-mono">
-                        {parsedResponse}
-                      </pre>
-                    </div>
-                  </div>
-                )}
-
-                {/* Show raw data if parsed content isn't available */}
-                {!extractRequest?.payload &&
-                  !parsedResponse &&
-                  assistantContent && (
-                    <div className="mb-4">
-                      <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">
-                        Raw Request
-                      </div>
-                      <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md">
-                        <pre className="p-3 text-xs overflow-auto whitespace-pre-wrap text-zinc-800 dark:text-zinc-300 font-mono">
-                          {assistantContent}
-                        </pre>
-                      </div>
-                    </div>
-                  )}
-
-                {!parsedResponse && toolContent && (
-                  <div>
-                    <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">
-                      Raw Response
-                    </div>
-                    <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md">
-                      <pre className="p-3 text-xs overflow-auto whitespace-pre-wrap text-zinc-800 dark:text-zinc-300 font-mono">
-                        {toolContent}
-                      </pre>
-                    </div>
-                  </div>
-                )}
+      <CardContent className="p-0 h-full flex-1 overflow-hidden relative">
+        {isStreaming ? (
+          <div className="flex flex-col items-center justify-center h-full py-8 px-6">
+            <div className="text-center w-full max-w-xs">
+              <div className="w-16 h-16 rounded-xl mx-auto mb-4 flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
+                <Loader2 className="h-8 w-8 animate-spin text-zinc-500 dark:text-zinc-400" />
               </div>
+              <h3 className="text-base font-medium text-zinc-900 dark:text-zinc-100 mb-2">
+                Executing call...
+              </h3>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                Calling {parsedCall.serviceName || 'data provider'}
+              </p>
             </div>
-          ) : (
-            <div className="flex-1 bg-white dark:bg-zinc-950 flex items-center justify-center">
-              <div className="text-center p-6">
-                <CircleDashed className="h-8 w-8 mx-auto mb-3 text-blue-500 animate-spin" />
-                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Processing {name.toLowerCase()} operation...
-                </p>
-                {extractRequest?.service && extractRequest?.route && (
-                  <p className="text-xs mt-1 text-zinc-500 dark:text-zinc-400 font-mono">
-                    {extractRequest.service}/{extractRequest.route}
+          </div>
+        ) : (
+          <div className="p-4 space-y-6">
+            <div className="flex items-center gap-4 p-4 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-800">
+              <div className={cn(
+                "w-12 h-12 rounded-lg flex items-center justify-center shadow-sm border-2",
+                `bg-gradient-to-br ${providerConfig.color}`,
+                "border-white/20"
+              )}>
+                <IconComponent className="h-6 w-6 text-white drop-shadow-sm" />
+              </div>
+              
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                  {providerConfig.name}
+                </h3>
+                {parsedCall.serviceName && (
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                    Service: {parsedCall.serviceName}
                   </p>
                 )}
               </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Footer - exactly like other tool views */}
-      <div className="p-4 border-t border-zinc-200 dark:border-zinc-800">
-        <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
-          {!isStreaming && (
-            <div className="flex items-center gap-2">
-              {isSuccess ? (
-                <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
-              ) : (
-                <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+              
+              {parsedCall.route && (
+                <Badge variant="outline" className="text-xs font-mono">
+                  {parsedCall.route}
+                </Badge>
               )}
-              <span>
-                {isSuccess
-                  ? `${toolTitle} completed successfully`
-                  : `${toolTitle} operation failed`}
-              </span>
             </div>
-          )}
-
-          {isStreaming && (
-            <div className="flex items-center gap-2">
-              <CircleDashed className="h-3.5 w-3.5 text-blue-500 animate-spin" />
-              <span>Executing {toolTitle.toLowerCase()}...</span>
-            </div>
-          )}
-
-          <div className="text-xs">
-            {toolTimestamp && !isStreaming
-              ? formatTimestamp(toolTimestamp)
-              : assistantTimestamp
-                ? formatTimestamp(assistantTimestamp)
-                : ''}
+            {parsedCall.jsonContent && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  <Settings className="h-4 w-4" />
+                  <span>Call Parameters</span>
+                  <ChevronRight className="h-3 w-3 text-zinc-400" />
+                </div>
+                <div className="grid gap-3">
+                  {Object.entries(parsedCall.jsonContent).map(([key, value]) => (
+                    <div 
+                      key={key}
+                      className="flex items-center justify-between p-3 bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-2 h-2 rounded-full bg-zinc-300 dark:bg-zinc-600"></div>
+                        <code className="text-sm font-mono font-medium text-zinc-900 dark:text-zinc-100">
+                          {key}
+                        </code>
+                      </div>
+                      <span className="text-sm text-zinc-600 dark:text-zinc-400 max-w-xs truncate font-mono">
+                        {typeof value === 'string' ? `"${value}"` : String(value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <details className="group">
+                  <summary className="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">
+                    <Code className="h-4 w-4" />
+                    <span>Raw JSON</span>
+                    <ChevronRight className="h-3 w-3 text-zinc-400 group-open:rotate-90 transition-transform" />
+                  </summary>
+                  
+                  <div className="mt-3 p-4 bg-zinc-900 dark:bg-zinc-950 rounded-lg border border-zinc-200 dark:border-zinc-800">
+                    <pre className="text-xs font-mono text-emerald-400 dark:text-emerald-300 overflow-x-auto">
+                      {JSON.stringify(parsedCall.jsonContent, null, 2)}
+                    </pre>
+                  </div>
+                </details>
+              </div>
+            )}
+            {!parsedCall.serviceName && !parsedCall.route && !parsedCall.jsonContent && (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <div className="w-12 h-12 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center mb-3">
+                  <Database className="h-6 w-6 text-zinc-400" />
+                </div>
+                <div className='flex items-center gap-2'>
+                  <Loader2 className="h-4 w-4 animate-spin text-zinc-500 dark:text-zinc-400" />
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                    Will be populated when the call is executed...
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
+        )}
+      </CardContent>
+      <div className="px-4 py-2 h-10 bg-zinc-50/50 dark:bg-zinc-900/50 backdrop-blur-sm border-t border-zinc-200 dark:border-zinc-800 flex justify-between items-center gap-4">
+        <div className="h-full flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+          {!isStreaming && parsedCall.serviceName && (
+            <Badge variant="outline" className="h-6 py-0.5 text-xs">
+              <IconComponent className="h-3 w-3 mr-1" />
+              {parsedCall.serviceName}
+            </Badge>
+          )}
+        </div>
+        <div className="text-xs text-zinc-500 dark:text-zinc-400">
+          {toolTimestamp && !isStreaming
+            ? formatTimestamp(toolTimestamp)
+            : assistantTimestamp
+              ? formatTimestamp(assistantTimestamp)
+              : ''}
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

@@ -356,12 +356,12 @@ class BrowserAutomation:
                 self.current_page_index = 0
             except Exception as page_error:
                 print(f"Error finding existing page, creating new one. ( {page_error})")
-                page = await self.browser.new_page()
+                page = await self.browser.new_page(viewport={'width': 1024, 'height': 768})
                 print("New page created successfully")
                 self.pages.append(page)
                 self.current_page_index = 0
-                # Navigate to about:blank to ensure page is ready
-                # await page.goto("google.com", timeout=30000)
+                # Navigate directly to google.com instead of about:blank
+                await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=30000)
                 print("Navigated to google.com")
                 
                 print("Browser initialization completed successfully")
@@ -599,10 +599,16 @@ class BrowserAutomation:
                 is_top_element=True
             )
             dummy_map = {1: dummy_root}
+            current_url = "unknown"
+            try:
+                if 'page' in locals():
+                    current_url = page.url
+            except:
+                pass
             return DOMState(
                 element_tree=dummy_root,
                 selector_map=dummy_map,
-                url=page.url if 'page' in locals() else "about:blank",
+                url=current_url,
                 title="Error page",
                 pixels_above=0,
                 pixels_below=0
@@ -612,10 +618,29 @@ class BrowserAutomation:
         """Take a screenshot and return as base64 encoded string"""
         try:
             page = await self.get_current_page()
-            screenshot_bytes = await page.screenshot(type='jpeg', quality=60, full_page=False)
+            
+            # Wait for network to be idle and DOM to be stable
+            try:
+                await page.wait_for_load_state("networkidle", timeout=60000)  # Increased timeout to 60s
+            except Exception as e:
+                print(f"Warning: Network idle timeout, proceeding anyway: {e}")
+            
+            # Wait for any animations to complete
+            # await page.wait_for_timeout(1000)  # Wait 1 second for animations
+            
+            # Take screenshot with increased timeout and better options
+            screenshot_bytes = await page.screenshot(
+                type='jpeg',
+                quality=60,
+                full_page=False,
+                timeout=60000,  # Increased timeout to 60s
+                scale='device'  # Use device scale factor
+            )
+            
             return base64.b64encode(screenshot_bytes).decode('utf-8')
         except Exception as e:
             print(f"Error taking screenshot: {e}")
+            traceback.print_exc()
             # Return an empty string rather than failing
             return ""
     
@@ -2059,4 +2084,4 @@ if __name__ == '__main__':
         asyncio.run(test_browser_api_2())
     else:
         print("Starting API server")
-        uvicorn.run("browser_api:api_app", host="0.0.0.0", port=8002)
+        uvicorn.run("browser_api:api_app", host="0.0.0.0", port=8003)

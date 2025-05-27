@@ -13,12 +13,13 @@ from utils.config import config, EnvMode
 from services.supabase import DBConnection
 from utils.auth_utils import get_current_user_id_from_jwt
 from pydantic import BaseModel
-
+from utils.constants import MODEL_ACCESS_TIERS, MODEL_NAME_ALIASES
 # Initialize Stripe
 stripe.api_key = config.STRIPE_SECRET_KEY
 
 # Initialize router
 router = APIRouter(prefix="/billing", tags=["billing"])
+
 
 SUBSCRIPTION_TIERS = {
     config.STRIPE_FREE_TIER_ID: {'name': 'free', 'minutes': 60},
@@ -197,6 +198,49 @@ async def calculate_monthly_usage(client, user_id: str) -> float:
         total_seconds += (end_time - start_time)
     
     return total_seconds / 60  # Convert to minutes
+
+async def get_allowed_models_for_user(client, user_id: str):
+    """
+    Get the list of models allowed for a user based on their subscription tier.
+    
+    Returns:
+        List of model names allowed for the user's subscription tier.
+    """
+
+    subscription = await get_user_subscription(user_id)
+    tier_name = 'free'
+    
+    if subscription:
+        price_id = None
+        if subscription.get('items') and subscription['items'].get('data') and len(subscription['items']['data']) > 0:
+            price_id = subscription['items']['data'][0]['price']['id']
+        else:
+            price_id = subscription.get('price_id', config.STRIPE_FREE_TIER_ID)
+        
+        # Get tier info for this price_id
+        tier_info = SUBSCRIPTION_TIERS.get(price_id)
+        if tier_info:
+            tier_name = tier_info['name']
+    
+    # Return allowed models for this tier
+    return MODEL_ACCESS_TIERS.get(tier_name, MODEL_ACCESS_TIERS['free'])  # Default to free tier if unknown
+
+
+async def can_use_model(client, user_id: str, model_name: str):
+    if config.ENV_MODE == EnvMode.LOCAL:
+        logger.info("Running in local development mode - billing checks are disabled")
+        return True, "Local development mode - billing disabled", {
+            "price_id": "local_dev",
+            "plan_name": "Local Development",
+            "minutes_limit": "no limit"
+        }
+        
+    allowed_models = await get_allowed_models_for_user(client, user_id)
+    resolved_model = MODEL_NAME_ALIASES.get(model_name, model_name)
+    if resolved_model in allowed_models:
+        return True, "Model access allowed", allowed_models
+    
+    return False, f"Your current subscription plan does not include access to {model_name}. Please upgrade your subscription or choose from your available models: {', '.join(allowed_models)}", allowed_models
 
 async def check_billing_status(client, user_id: str) -> Tuple[bool, str, Optional[Dict]]:
     """
@@ -509,7 +553,8 @@ async def create_checkout_session(
                 metadata={
                         'user_id': current_user_id,
                         'product_id': product_id
-                }
+                },
+                allow_promotion_codes=True
             )
             
             # Update customer status to potentially active (will be confirmed by webhook)
@@ -816,3 +861,100 @@ async def stripe_webhook(request: Request):
     except Exception as e:
         logger.error(f"Error processing webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/available-models")
+async def get_available_models(
+    current_user_id: str = Depends(get_current_user_id_from_jwt)
+):
+    """Get the list of models available to the user based on their subscription tier."""
+    try:
+        # Get Supabase client
+        db = DBConnection()
+        client = await db.client
+        
+        # Check if we're in local development mode
+        if config.ENV_MODE == EnvMode.LOCAL:
+            logger.info("Running in local development mode - billing checks are disabled")
+            
+            # In local mode, return all models from MODEL_NAME_ALIASES
+            model_info = []
+            for short_name, full_name in MODEL_NAME_ALIASES.items():
+                # Skip entries where the key is a full name to avoid duplicates
+                # if short_name == full_name or '/' in short_name:
+                #     continue
+                
+                model_info.append({
+                    "id": full_name,
+                    "display_name": short_name,
+                    "short_name": short_name,
+                    "requires_subscription": False  # Always false in local dev mode
+                })
+            
+            return {
+                "models": model_info,
+                "subscription_tier": "Local Development",
+                "total_models": len(model_info)
+            }
+        
+        # For non-local mode, get list of allowed models for this user
+        allowed_models = await get_allowed_models_for_user(client, current_user_id)
+        free_tier_models = MODEL_ACCESS_TIERS.get('free', [])
+        
+        # Get subscription info for context
+        subscription = await get_user_subscription(current_user_id)
+        
+        # Determine tier name from subscription
+        tier_name = 'free'
+        if subscription:
+            price_id = None
+            if subscription.get('items') and subscription['items'].get('data') and len(subscription['items']['data']) > 0:
+                price_id = subscription['items']['data'][0]['price']['id']
+            else:
+                price_id = subscription.get('price_id', config.STRIPE_FREE_TIER_ID)
+            
+            # Get tier info for this price_id
+            tier_info = SUBSCRIPTION_TIERS.get(price_id)
+            if tier_info:
+                tier_name = tier_info['name']
+        
+        # Get all unique full model names from MODEL_NAME_ALIASES
+        all_models = set()
+        model_aliases = {}
+        
+        for short_name, full_name in MODEL_NAME_ALIASES.items():
+            # Add all unique full model names
+            all_models.add(full_name)
+            
+            # Only include short names that don't match their full names for aliases
+            if short_name != full_name and not short_name.startswith("openai/") and not short_name.startswith("anthropic/") and not short_name.startswith("openrouter/") and not short_name.startswith("xai/"):
+                if full_name not in model_aliases:
+                    model_aliases[full_name] = short_name
+        
+        # Create model info with display names for ALL models
+        model_info = []
+        for model in all_models:
+            display_name = model_aliases.get(model, model.split('/')[-1] if '/' in model else model)
+            
+            # Check if model requires subscription (not in free tier)
+            requires_sub = model not in free_tier_models
+            
+            # Check if model is available with current subscription
+            is_available = model in allowed_models
+            
+            model_info.append({
+                "id": model,
+                "display_name": display_name,
+                "short_name": model_aliases.get(model),
+                "requires_subscription": requires_sub,
+                "is_available": is_available
+            })
+        
+        return {
+            "models": model_info,
+            "subscription_tier": tier_name,
+            "total_models": len(model_info)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting available models: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting available models: {str(e)}")

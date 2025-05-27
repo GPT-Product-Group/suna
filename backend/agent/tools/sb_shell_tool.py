@@ -154,7 +154,7 @@ class SandboxShellTool(SandboxToolsBase):
                         break
                         
                     # Get current output and check for common completion indicators
-                    output_result = await self._execute_raw_command(f"tmux capture-pane -t {session_name} -p")
+                    output_result = await self._execute_raw_command(f"tmux capture-pane -t {session_name} -p -S - -E -")
                     current_output = output_result.get("output", "")
                     
                     # Check for prompt indicators that suggest command completion
@@ -164,7 +164,7 @@ class SandboxShellTool(SandboxToolsBase):
                         break
                 
                 # Capture final output
-                output_result = await self._execute_raw_command(f"tmux capture-pane -t {session_name} -p")
+                output_result = await self._execute_raw_command(f"tmux capture-pane -t {session_name} -p -S - -E -")
                 final_output = output_result.get("output", "")
                 
                 # Kill the session after capture
@@ -253,10 +253,10 @@ class SandboxShellTool(SandboxToolsBase):
         ],
         example='''
         <!-- Example 1: Check output without killing session -->
-        <check-command-output session_name="dev_server"/>
+        <check-command-output session_name="dev_server"></check-command-output>
         
         <!-- Example 2: Check final output and kill session -->
-        <check-command-output session_name="build_process" kill_session="true"/>
+        <check-command-output session_name="build_process" kill_session="true"></check-command-output>
         '''
     )
     async def check_command_output(
@@ -274,7 +274,7 @@ class SandboxShellTool(SandboxToolsBase):
                 return self.fail_response(f"Tmux session '{session_name}' does not exist.")
             
             # Get output from tmux pane
-            output_result = await self._execute_raw_command(f"tmux capture-pane -t {session_name} -p")
+            output_result = await self._execute_raw_command(f"tmux capture-pane -t {session_name} -p -S - -E -")
             output = output_result.get("output", "")
             
             # Kill session if requested
@@ -317,7 +317,7 @@ class SandboxShellTool(SandboxToolsBase):
         ],
         example='''
         <!-- Example: Terminate a running server -->
-        <terminate-command session_name="dev_server"/>
+        <terminate-command session_name="dev_server"></terminate-command>
         '''
     )
     async def terminate_command(
@@ -359,7 +359,7 @@ class SandboxShellTool(SandboxToolsBase):
         mappings=[],
         example='''
         <!-- Example: List all running commands -->
-        <list-commands/>
+        <list-commands></list-commands>
         '''
     )
     async def list_commands(self) -> ToolResult:
