@@ -86,6 +86,7 @@ async def run_agent(
         thread_manager.add_tool(DataProvidersTool)
 
     # Get system prompt with user_id for potential custom prompt
+    logger.info(f"debug user_id: {user_id}")
     system_message_user = get_system_prompt(user_id)
 
     if "gemini-2.5-flash" in model_name.lower():
