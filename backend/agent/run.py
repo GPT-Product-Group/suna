@@ -102,7 +102,7 @@ async def run_agent(
 
     iteration_count = 0
     continue_execution = True
-
+    logger.info(f"system_message: {system_message}")
     latest_user_message = await client.table('messages').select('*').eq('thread_id', thread_id).eq('type', 'user').order('created_at', desc=True).limit(1).execute()
     if latest_user_message.data and len(latest_user_message.data) > 0:
         data = json.loads(latest_user_message.data[0]['content'])
