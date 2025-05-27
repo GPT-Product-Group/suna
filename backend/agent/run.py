@@ -86,7 +86,7 @@ async def run_agent(
         thread_manager.add_tool(DataProvidersTool)
 
     # Get system prompt with user_id for potential custom prompt
-    logger.info(f"debug user_id: {user_id}")
+    
     system_message_user = get_system_prompt(user_id)
 
     if "gemini-2.5-flash" in model_name.lower():
@@ -103,7 +103,7 @@ async def run_agent(
 
     iteration_count = 0
     continue_execution = True
-    logger.info(f"system_message: {system_message}")
+    logger.info(f"debug_info user_id: {user_id}, system_message_user: {system_message_user}")
     latest_user_message = await client.table('messages').select('*').eq('thread_id', thread_id).eq('type', 'user').order('created_at', desc=True).limit(1).execute()
     if latest_user_message.data and len(latest_user_message.data) > 0:
         data = json.loads(latest_user_message.data[0]['content'])
