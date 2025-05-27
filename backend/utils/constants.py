@@ -128,7 +128,9 @@ MODEL_NAME_ALIASES = {
     # "google/gemini-2.5-flash-preview:thinking":"openrouter/google/gemini-2.5-flash-preview:thinking",
     "google/gemini-2.5-pro-preview":"openrouter/google/gemini-2.5-pro-preview",
     "deepseek/deepseek-chat-v3-0324":"openrouter/deepseek/deepseek-chat-v3-0324",
-
+    "openrouter/sonnet-3.7": "openrouter/anthropic/claude-3.7-sonnet",
+    "openrouter/sonnet-4": "openrouter/anthropic/claude-sonnet-4",
+    "openrouter/gpt-4.1": "openrouter/openai/gpt-4.1",
     # Also include full names as keys to ensure they map to themselves
     # "anthropic/claude-3-7-sonnet-latest": "anthropic/claude-3-7-sonnet-latest",
     # "openai/gpt-4.1-2025-04-14": "openai/gpt-4.1-2025-04-14",  # Commented out in constants.py
