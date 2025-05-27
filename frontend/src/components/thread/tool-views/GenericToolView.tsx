@@ -1,48 +1,59 @@
-import React from 'react';
+'use client'
+
+import React, { useState, useEffect } from 'react';
+import {
+  Settings,
+  CheckCircle,
+  AlertTriangle,
+  Loader2,
+  Clock,
+  Code,
+  FileText,
+  ArrowRight,
+  Wrench,
+} from 'lucide-react';
 import { ToolViewProps } from './types';
 import { formatTimestamp, getToolTitle } from './utils';
-import { getToolIcon } from '../utils';
-import { CircleDashed, CheckCircle, AlertTriangle } from 'lucide-react';
-import { Markdown } from '@/components/ui/markdown';
 import { cn } from '@/lib/utils';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export function GenericToolView({
-  name = 'unknown',
+  name = 'generic-tool',
   assistantContent,
   toolContent,
-  isSuccess = true,
-  isStreaming = false,
   assistantTimestamp,
   toolTimestamp,
+  isSuccess = true,
+  isStreaming = false,
 }: ToolViewProps) {
-  console.log('GenericToolView:', {
-    name,
-    assistantContent,
-    toolContent,
-    isSuccess,
-    isStreaming,
-    assistantTimestamp,
-    toolTimestamp,
-  });
+  const [progress, setProgress] = useState(0);
 
   const toolTitle = getToolTitle(name);
-  const Icon = getToolIcon(name);
 
-  // Format content for display
-  const formatContent = (content: string | null) => {
+  const formatContent = (content: any) => {
     if (!content) return null;
 
-    try {
-      // Try to parse as JSON for pretty formatting
-      const parsedJson = JSON.parse(content);
-      return JSON.stringify(parsedJson, null, 2);
-    } catch (e) {
-      // If not valid JSON, return as is
-      return content;
+    if (typeof content === 'object') {
+      if (content.content && typeof content.content === 'string') {
+        return content.content;
+      }
+      return JSON.stringify(content, null, 2);
     }
+    if (typeof content === 'string') {
+      try {
+        const parsedJson = JSON.parse(content);
+        return JSON.stringify(parsedJson, null, 2);
+      } catch (e) {
+        return content;
+      }
+    }
+
+    return String(content);
   };
 
-  // Format the contents
   const formattedAssistantContent = React.useMemo(
     () => formatContent(assistantContent),
     [assistantContent],
@@ -53,99 +64,127 @@ export function GenericToolView({
   );
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 p-4 overflow-auto">
-        {/* Assistant Content */}
-        {assistantContent && !isStreaming && (
-          <div className="space-y-1.5">
-            <div className="flex justify-between items-center">
-              <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                Input
-              </div>
-              {assistantTimestamp && (
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {formatTimestamp(assistantTimestamp)}
-                </div>
-              )}
+    <Card className="gap-0 flex border shadow-none border-t border-b-0 border-x-0 p-0 rounded-none flex-col h-full overflow-hidden bg-white dark:bg-zinc-950">
+      <CardHeader className="h-14 bg-zinc-50/80 dark:bg-zinc-900/80 backdrop-blur-sm border-b p-2 px-4 space-y-2">
+        <div className="flex flex-row items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="relative p-2 rounded-lg bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/20">
+              <Wrench className="w-5 h-5 text-orange-500 dark:text-orange-400" />
             </div>
-            <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-3">
-              <Markdown className="text-xs text-zinc-800 dark:text-zinc-300">
-                {formattedAssistantContent}
-              </Markdown>
+            <div>
+              <CardTitle className="text-base font-medium text-zinc-900 dark:text-zinc-100">
+                {toolTitle}
+              </CardTitle>
             </div>
           </div>
-        )}
-
-        {/* Tool Result */}
-        {toolContent && (
-          <div className="space-y-1.5 mt-4">
-            <div className="flex justify-between items-center">
-              <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                {isStreaming ? 'Processing' : 'Output'}
-              </div>
-              {toolTimestamp && !isStreaming && (
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {formatTimestamp(toolTimestamp)}
-                </div>
-              )}
-            </div>
-            <div
-              className={cn(
-                'rounded-md border p-3',
-                isStreaming
-                  ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/10'
-                  : isSuccess
-                    ? 'border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900'
-                    : 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/10',
-              )}
-            >
-              {isStreaming ? (
-                <div className="flex items-center gap-2 text-xs font-medium text-blue-700 dark:text-blue-400">
-                  <CircleDashed className="h-3 w-3 animate-spin" />
-                  <span>Executing {toolTitle.toLowerCase()}...</span>
-                </div>
-              ) : (
-                <Markdown className="text-xs text-zinc-800 dark:text-zinc-300">
-                  {formattedToolContent}
-                </Markdown>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="p-4 border-t border-zinc-200 dark:border-zinc-800">
-        <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+          
           {!isStreaming && (
-            <div className="flex items-center gap-2">
+            <Badge 
+              variant="secondary" 
+              className={
+                isSuccess 
+                  ? "bg-gradient-to-b from-emerald-200 to-emerald-100 text-emerald-700 dark:from-emerald-800/50 dark:to-emerald-900/60 dark:text-emerald-300" 
+                  : "bg-gradient-to-b from-rose-200 to-rose-100 text-rose-700 dark:from-rose-800/50 dark:to-rose-900/60 dark:text-rose-300"
+              }
+            >
               {isSuccess ? (
-                <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+                <CheckCircle className="h-3.5 w-3.5" />
               ) : (
-                <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                <AlertTriangle className="h-3.5 w-3.5" />
               )}
-              <span>
-                {isSuccess ? 'Completed successfully' : 'Execution failed'}
-              </span>
-            </div>
+              {isSuccess ? 'Tool executed successfully' : 'Tool execution failed'}
+            </Badge>
           )}
+        </div>
+      </CardHeader>
 
-          {isStreaming && (
-            <div className="flex items-center gap-2">
-              <CircleDashed className="h-3.5 w-3.5 text-blue-500 animate-spin" />
-              <span>Processing...</span>
+      <CardContent className="p-0 h-full flex-1 overflow-hidden relative">
+        {isStreaming ? (
+          <div className="flex flex-col items-center justify-center h-full py-12 px-6 bg-gradient-to-b from-white to-zinc-50 dark:from-zinc-950 dark:to-zinc-900">
+            <div className="text-center w-full max-w-xs">
+              <div className="w-16 h-16 rounded-full mx-auto mb-6 flex items-center justify-center bg-gradient-to-b from-orange-100 to-orange-50 shadow-inner dark:from-orange-800/40 dark:to-orange-900/60 dark:shadow-orange-950/20">
+                <Loader2 className="h-8 w-8 animate-spin text-orange-500 dark:text-orange-400" />
+              </div>
+              <h3 className="text-lg font-medium text-zinc-900 dark:text-zinc-100 mb-2">
+                Executing tool
+              </h3>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
+                <span className="font-mono text-xs break-all">{name}</span>
+              </p>
+              <Progress value={progress} className="w-full h-2" />
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2">{progress}%</p>
             </div>
-          )}
-
-          <div className="text-xs">
-            {toolTimestamp && !isStreaming
-              ? formatTimestamp(toolTimestamp)
-              : assistantTimestamp
-                ? formatTimestamp(assistantTimestamp)
-                : ''}
           </div>
+        ) : formattedAssistantContent || formattedToolContent ? (
+          <ScrollArea className="h-full w-full">
+            <div className="p-4 space-y-4">
+              {formattedAssistantContent && (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center">
+                    <Wrench className="h-4 w-4 mr-2 text-zinc-500 dark:text-zinc-400" />
+                    Input
+                  </div>
+                  <div className="border-muted bg-muted/20 rounded-lg overflow-hidden border">
+                    <div className="p-4">
+                      <pre className="text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-words font-mono">
+                        {formattedAssistantContent}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {formattedToolContent && (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center">
+                    <Wrench className="h-4 w-4 mr-2 text-zinc-500 dark:text-zinc-400" />
+                    Output
+                  </div>
+                  <div className="border-muted bg-muted/20 rounded-lg overflow-hidden border">
+                    <div className="p-4">
+                      <pre className="text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-words font-mono">
+                        {formattedToolContent}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full py-12 px-6 bg-gradient-to-b from-white to-zinc-50 dark:from-zinc-950 dark:to-zinc-900">
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-gradient-to-b from-zinc-100 to-zinc-50 shadow-inner dark:from-zinc-800/40 dark:to-zinc-900/60">
+              <Wrench className="h-10 w-10 text-zinc-400 dark:text-zinc-600" />
+            </div>
+            <h3 className="text-xl font-semibold mb-2 text-zinc-900 dark:text-zinc-100">
+              No Content Available
+            </h3>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 text-center max-w-md">
+              This tool execution did not produce any input or output content to display.
+            </p>
+          </div>
+        )}
+      </CardContent>
+      
+      <div className="px-4 py-2 h-10 bg-gradient-to-r from-zinc-50/90 to-zinc-100/90 dark:from-zinc-900/90 dark:to-zinc-800/90 backdrop-blur-sm border-t border-zinc-200 dark:border-zinc-800 flex justify-between items-center gap-4">
+        <div className="h-full flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+          {!isStreaming && (formattedAssistantContent || formattedToolContent) && (
+            <Badge variant="outline" className="h-6 py-0.5 bg-zinc-50 dark:bg-zinc-900">
+              <Wrench className="h-3 w-3" />
+              Tool
+            </Badge>
+          )}
+        </div>
+        
+        <div className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
+          <Clock className="h-3.5 w-3.5" />
+          {toolTimestamp && !isStreaming
+            ? formatTimestamp(toolTimestamp)
+            : assistantTimestamp
+              ? formatTimestamp(assistantTimestamp)
+              : ''}
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

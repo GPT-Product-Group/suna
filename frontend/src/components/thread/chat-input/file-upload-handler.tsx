@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Paperclip, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { fileQueryKeys } from '@/hooks/react-query/files/use-file-queries';
 import {
   Tooltip,
   TooltipContent,
@@ -49,6 +51,8 @@ const uploadFiles = async (
   sandboxId: string,
   setUploadedFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
   setIsUploading: React.Dispatch<React.SetStateAction<boolean>>,
+  messages: any[] = [], // Add messages parameter to check for existing files
+  queryClient?: any, // Add queryClient parameter for cache invalidation
 ) => {
   try {
     setIsUploading(true);
@@ -61,10 +65,16 @@ const uploadFiles = async (
         continue;
       }
 
+      const uploadPath = `/workspace/${file.name}`;
+
+      // Check if this filename already exists in chat messages
+      const isFileInChat = messages.some(message => {
+        const content = typeof message.content === 'string' ? message.content : '';
+        return content.includes(`[Uploaded File: ${uploadPath}]`);
+      });
+
       const formData = new FormData();
       formData.append('file', file);
-
-      const uploadPath = `/workspace/${file.name}`;
       formData.append('path', uploadPath);
 
       const supabase = createClient();
@@ -86,6 +96,23 @@ const uploadFiles = async (
 
       if (!response.ok) {
         throw new Error(`Upload failed: ${response.statusText}`);
+      }
+
+      // If file was already in chat and we have queryClient, invalidate its cache
+      if (isFileInChat && queryClient) {
+        console.log(`Invalidating cache for existing file: ${uploadPath}`);
+
+        // Invalidate all content types for this file
+        ['text', 'blob', 'json'].forEach(contentType => {
+          const queryKey = fileQueryKeys.content(sandboxId, uploadPath, contentType);
+          queryClient.removeQueries({ queryKey });
+        });
+
+        // Also invalidate directory listing
+        const directoryPath = uploadPath.substring(0, uploadPath.lastIndexOf('/'));
+        queryClient.invalidateQueries({
+          queryKey: fileQueryKeys.directory(sandboxId, directoryPath),
+        });
       }
 
       newUploadedFiles.push({
@@ -119,10 +146,12 @@ const handleFiles = async (
   setPendingFiles: React.Dispatch<React.SetStateAction<File[]>>,
   setUploadedFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
   setIsUploading: React.Dispatch<React.SetStateAction<boolean>>,
+  messages: any[] = [], // Add messages parameter
+  queryClient?: any, // Add queryClient parameter
 ) => {
   if (sandboxId) {
     // If we have a sandboxId, upload files directly
-    await uploadFiles(files, sandboxId, setUploadedFiles, setIsUploading);
+    await uploadFiles(files, sandboxId, setUploadedFiles, setIsUploading, messages, queryClient);
   } else {
     // Otherwise, store files locally
     handleLocalFiles(files, setPendingFiles, setUploadedFiles);
@@ -138,6 +167,7 @@ interface FileUploadHandlerProps {
   setPendingFiles: React.Dispatch<React.SetStateAction<File[]>>;
   setUploadedFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
   setIsUploading: React.Dispatch<React.SetStateAction<boolean>>;
+  messages?: any[]; // Add messages prop
 }
 
 export const FileUploadHandler = forwardRef<
@@ -154,9 +184,11 @@ export const FileUploadHandler = forwardRef<
       setPendingFiles,
       setUploadedFiles,
       setIsUploading,
+      messages = [],
     },
     ref,
   ) => {
+    const queryClient = useQueryClient();
     // Clean up object URLs when component unmounts
     useEffect(() => {
       return () => {
@@ -184,7 +216,6 @@ export const FileUploadHandler = forwardRef<
       if (!event.target.files || event.target.files.length === 0) return;
 
       const files = Array.from(event.target.files);
-
       // Use the helper function instead of the static method
       handleFiles(
         files,
@@ -192,6 +223,8 @@ export const FileUploadHandler = forwardRef<
         setPendingFiles,
         setUploadedFiles,
         setIsUploading,
+        messages,
+        queryClient,
       );
 
       event.target.value = '';
@@ -217,7 +250,7 @@ export const FileUploadHandler = forwardRef<
                 ) : (
                   <Paperclip className="h-4 w-4" />
                 )}
-                <span className="text-sm">Attachments</span>
+                <span className="text-sm sm:block hidden">Attachments</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top">

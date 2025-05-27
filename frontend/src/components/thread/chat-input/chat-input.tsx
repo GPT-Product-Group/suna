@@ -12,11 +12,10 @@ import { Loader2, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { handleFiles } from './file-upload-handler';
 import { MessageInput } from './message-input';
-import { FileAttachment } from '../file-attachment';
 import { AttachmentGroup } from '../attachment-group';
 import { useModelSelection } from './_use-model-selection';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { toast } from 'sonner';
+import { useFileDelete } from '@/hooks/react-query/files';
+import { useQueryClient } from '@tanstack/react-query';
 
 export interface ChatInputHandles {
   getPendingFiles: () => File[];
@@ -39,6 +38,7 @@ export interface ChatInputProps {
   onFileBrowse?: () => void;
   sandboxId?: string;
   hideAttachments?: boolean;
+  messages?: any[]; // Add messages prop to check for existing file references
 }
 
 export interface UploadedFile {
@@ -64,6 +64,7 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
       onFileBrowse,
       sandboxId,
       hideAttachments = false,
+      messages = [],
     },
     ref,
   ) => {
@@ -84,7 +85,12 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
       subscriptionStatus,
       allModels: modelOptions,
       canAccessModel,
+      getActualModelId,
+      refreshCustomModels,
     } = useModelSelection();
+
+    const deleteFileMutation = useFileDelete();
+    const queryClient = useQueryClient();
 
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -123,10 +129,10 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
         message = message ? `${message}\n\n${fileInfo}` : fileInfo;
       }
 
-      let baseModelName = selectedModel;
+      let baseModelName = getActualModelId(selectedModel);
       let thinkingEnabled = false;
       if (selectedModel.endsWith('-thinking')) {
-        baseModelName = selectedModel.replace(/-thinking$/, '');
+        baseModelName = getActualModelId(selectedModel.replace(/-thinking$/, ''));
         thinkingEnabled = true;
       }
 
@@ -153,13 +159,36 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
 
     const removeUploadedFile = (index: number) => {
       const fileToRemove = uploadedFiles[index];
+
+      // Clean up local URL if it exists
       if (fileToRemove.localUrl) {
         URL.revokeObjectURL(fileToRemove.localUrl);
       }
 
+      // Remove from local state immediately for responsive UI
       setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
       if (!sandboxId && pendingFiles.length > index) {
         setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+      }
+
+      // Check if file is referenced in existing chat messages before deleting from server
+      const isFileUsedInChat = messages.some(message => {
+        const content = typeof message.content === 'string' ? message.content : '';
+        return content.includes(`[Uploaded File: ${fileToRemove.path}]`);
+      });
+
+      // Only delete from server if file is not referenced in chat history
+      if (sandboxId && fileToRemove.path && !isFileUsedInChat) {
+        deleteFileMutation.mutate({
+          sandboxId,
+          filePath: fileToRemove.path,
+        }, {
+          onError: (error) => {
+            console.error('Failed to delete file from server:', error);
+          }
+        });
+      } else if (isFileUsedInChat) {
+        console.log(`Skipping server deletion for ${fileToRemove.path} - file is referenced in chat history`);
       }
     };
 
@@ -194,12 +223,14 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
                 setPendingFiles,
                 setUploadedFiles,
                 setIsUploading,
+                messages,
+                queryClient,
               );
             }
           }}
         >
           <div className="w-full text-sm flex flex-col justify-between items-start rounded-lg">
-            <CardContent className="w-full p-1.5 pb-2 pt-3 bg-sidebar rounded-2xl border">
+            <CardContent className="w-full p-1.5 pb-2 bg-[#efefef] dark:bg-sidebar rounded-2xl border">
               <AttachmentGroup
                 files={uploadedFiles || []}
                 sandboxId={sandboxId}
@@ -229,12 +260,14 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
                 setUploadedFiles={setUploadedFiles}
                 setIsUploading={setIsUploading}
                 hideAttachments={hideAttachments}
+                messages={messages}
 
                 selectedModel={selectedModel}
                 onModelChange={handleModelChange}
                 modelOptions={modelOptions}
                 subscriptionStatus={subscriptionStatus}
                 canAccessModel={canAccessModel}
+                refreshCustomModels={refreshCustomModels}
               />
             </CardContent>
           </div>
