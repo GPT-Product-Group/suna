@@ -103,7 +103,7 @@ async def run_agent(
 
     iteration_count = 0
     continue_execution = True
-    logger.info(f"debug_info user_id: {user_id}, system_message_user: {system_message_user}")
+    #logger.info(f"debug_info user_id: {user_id}, system_message_user: {system_message_user}")
     latest_user_message = await client.table('messages').select('*').eq('thread_id', thread_id).eq('type', 'user').order('created_at', desc=True).limit(1).execute()
     if latest_user_message.data and len(latest_user_message.data) > 0:
         data = json.loads(latest_user_message.data[0]['content'])
@@ -223,6 +223,7 @@ async def run_agent(
             max_tokens = 4096
             
         generation = trace.generation(name="thread_manager.run_thread")
+        logger.info(f"debug_info system_message: {system_message}, temporary_message: {temporary_message}")
         try:
             # Make the LLM call and process the response
             response = await thread_manager.run_thread(
