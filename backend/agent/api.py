@@ -32,33 +32,33 @@ instance_id = None # Global instance ID for this backend instance
 REDIS_RESPONSE_LIST_TTL = 3600 * 24
 
 
-MODEL_NAME_ALIASES = {
-    # Short names to full names
-    "sonnet-3.7": "anthropic/claude-3-7-sonnet-latest",
-    "gpt-4.1": "openai/gpt-4.1-2025-04-14",
-    "gpt-4o": "openai/gpt-4o",
-    "gpt-4-turbo": "openai/gpt-4-turbo",
-    "gpt-4": "openai/gpt-4",
-    "gemini-flash-2.5": "openrouter/google/gemini-2.5-flash-preview",
-    "grok-3": "xai/grok-3-fast-latest",
-    "deepseek": "openrouter/deepseek/deepseek-chat",
-    "grok-3-mini": "xai/grok-3-mini-fast-beta",
-    "qwen3": "openrouter/qwen/qwen3-235b-a22b", 
+# MODEL_NAME_ALIASES = {
+#     # Short names to full names
+#     "sonnet-3.7": "anthropic/claude-3-7-sonnet-latest",
+#     "gpt-4.1": "openai/gpt-4.1-2025-04-14",
+#     "gpt-4o": "openai/gpt-4o",
+#     "gpt-4-turbo": "openai/gpt-4-turbo",
+#     "gpt-4": "openai/gpt-4",
+#     "gemini-flash-2.5": "openrouter/google/gemini-2.5-flash-preview",
+#     "grok-3": "xai/grok-3-fast-latest",
+#     "deepseek": "openrouter/deepseek/deepseek-chat",
+#     "grok-3-mini": "xai/grok-3-mini-fast-beta",
+#     "qwen3": "openrouter/qwen/qwen3-235b-a22b", 
 
-    # Also include full names as keys to ensure they map to themselves
-    "anthropic/claude-3-7-sonnet-latest": "anthropic/claude-3-7-sonnet-latest",
-    "openai/gpt-4.1-2025-04-14": "openai/gpt-4.1-2025-04-14",
-    "openrouter/gpt-4.1": "openrouter/openai/gpt-4.1",
-    "openai/gpt-4o": "openai/gpt-4o",
-    "openai/gpt-4-turbo": "openai/gpt-4-turbo",
-    "openai/gpt-4": "openai/gpt-4",
-    "openrouter/google/gemini-2.5-flash-preview": "openrouter/google/gemini-2.5-flash-preview",
-    "xai/grok-3-fast-latest": "xai/grok-3-fast-latest",
-    "deepseek/deepseek-chat": "openrouter/deepseek/deepseek-chat",
-    "xai/grok-3-mini-fast-beta": "xai/grok-3-mini-fast-beta",
-    "openrouter/sonnet-3.7": "openrouter/anthropic/claude-3.7-sonnet",
-    "openrouter/sonnet-4": "openrouter/anthropic/claude-sonnet-4",
-}
+#     # Also include full names as keys to ensure they map to themselves
+#     "anthropic/claude-3-7-sonnet-latest": "anthropic/claude-3-7-sonnet-latest",
+#     "openai/gpt-4.1-2025-04-14": "openai/gpt-4.1-2025-04-14",
+#     "openrouter/gpt-4.1": "openrouter/openai/gpt-4.1",
+#     "openai/gpt-4o": "openai/gpt-4o",
+#     "openai/gpt-4-turbo": "openai/gpt-4-turbo",
+#     "openai/gpt-4": "openai/gpt-4",
+#     "openrouter/google/gemini-2.5-flash-preview": "openrouter/google/gemini-2.5-flash-preview",
+#     "xai/grok-3-fast-latest": "xai/grok-3-fast-latest",
+#     "deepseek/deepseek-chat": "openrouter/deepseek/deepseek-chat",
+#     "xai/grok-3-mini-fast-beta": "xai/grok-3-mini-fast-beta",
+#     "openrouter/sonnet-3.7": "openrouter/anthropic/claude-3.7-sonnet",
+#     "openrouter/sonnet-4": "openrouter/anthropic/claude-sonnet-4",
+# }
 
 
 class AgentStartRequest(BaseModel):
