@@ -58,8 +58,8 @@ async def run_agent(
         raise ValueError("Could not determine account ID for thread")
     
     # 如果没有明确指定 user_id，使用 account_id
-    if not user_id:
-        user_id = account_id
+    #if not user_id:
+    user_id = account_id
 
     # Get sandbox info from project
     project = await client.table('projects').select('*').eq('project_id', project_id).execute()
