@@ -49,11 +49,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    user: "1000:1000"
       rabbitmq:
         condition: service_healthy
       worker:
         condition: service_started
+    user: "1000:1000"
 
   worker:
     build:
@@ -93,7 +93,7 @@ services:
       - backend
 
 volumes:
-  redis-data:
+  redis_data:
   rabbitmq_data:
   backend-data:
     driver: local
