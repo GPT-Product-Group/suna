@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException, Response, Depends
+from fastapi import FastAPI, Request, HTTPException, Response, Depends,Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 import sentry
@@ -14,8 +14,10 @@ import time
 from collections import OrderedDict
 from typing import Dict, Any
 
-
+from agent.prompt import get_user_prompt, save_user_prompt, delete_user_prompt
 from pydantic import BaseModel
+from typing import Optional
+from utils.auth_utils import get_current_user_id_from_jwt
 # Import the agent API module
 from agent import api as agent_api
 from sandbox import api as sandbox_api
