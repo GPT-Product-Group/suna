@@ -113,6 +113,12 @@ class SandboxShellTool(SandboxToolsBase):
         timeout: int = 60
     ) -> ToolResult:
         try:
+            # Ensure parameter types are correct (handle XML/JSON parsing issues)
+            if isinstance(timeout, str):
+                timeout = int(timeout)
+            # if isinstance(blocking, str):
+            #     blocking = blocking.lower() in ('true', '1', 'yes', 'on')
+            
             # Ensure sandbox is initialized
             await self._ensure_sandbox()
             
