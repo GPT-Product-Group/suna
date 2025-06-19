@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   FileText,
   ChevronDown,
+  Archive,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -49,6 +50,8 @@ import {
   useFileUpload,
   FileCache
 } from '@/hooks/react-query/files';
+import JSZip from 'jszip';
+import { normalizeFilenameToNFC } from '@/lib/utils/unicode';
 
 // Define API_URL
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
@@ -59,6 +62,7 @@ interface FileViewerModalProps {
   sandboxId: string;
   initialFilePath?: string | null;
   project?: Project;
+  filePathList?: string[];
 }
 
 export function FileViewerModal({
@@ -67,6 +71,7 @@ export function FileViewerModal({
   sandboxId,
   initialFilePath,
   project,
+  filePathList,
 }: FileViewerModalProps) {
   // Safely handle initialFilePath to ensure it's a string or null
   const safeInitialFilePath = typeof initialFilePath === 'string' ? initialFilePath : null;
@@ -77,6 +82,20 @@ export function FileViewerModal({
   // File navigation state
   const [currentPath, setCurrentPath] = useState('/workspace');
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+
+  // Add navigation state for file list mode
+  const [currentFileIndex, setCurrentFileIndex] = useState<number>(-1);
+  const isFileListMode = Boolean(filePathList && filePathList.length > 0);
+
+  // Debug filePathList changes
+  useEffect(() => {
+    console.log('[FILE VIEWER DEBUG] filePathList changed:', {
+      filePathList,
+      length: filePathList?.length,
+      isFileListMode,
+      currentFileIndex
+    });
+  }, [filePathList, isFileListMode, currentFileIndex]);
 
   // Use React Query for directory listing
   const {
@@ -145,6 +164,14 @@ export function FileViewerModal({
   // Add a ref to track active download URLs
   const activeDownloadUrls = useRef<Set<string>>(new Set());
 
+  // Add state for download all functionality
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{
+    current: number;
+    total: number;
+    currentFile: string;
+  } | null>(null);
+
   // Setup project with sandbox URL if not provided directly
   useEffect(() => {
     if (project) {
@@ -169,6 +196,188 @@ export function FileViewerModal({
       : `/workspace/${path.replace(/^\//, '')}`;
   }, []);
 
+  // Recursive function to discover all files in the workspace
+  const discoverAllFiles = useCallback(async (
+    startPath: string = '/workspace'
+  ): Promise<{ files: FileInfo[], totalSize: number }> => {
+    const allFiles: FileInfo[] = [];
+    let totalSize = 0;
+    const visited = new Set<string>();
+
+    const exploreDirectory = async (dirPath: string) => {
+      if (visited.has(dirPath)) return;
+      visited.add(dirPath);
+
+      try {
+        console.log(`[DOWNLOAD ALL] Exploring directory: ${dirPath}`);
+        const files = await listSandboxFiles(sandboxId, dirPath);
+
+        for (const file of files) {
+          if (file.is_dir) {
+            // Recursively explore subdirectories
+            await exploreDirectory(file.path);
+          } else {
+            // Add file to collection
+            allFiles.push(file);
+            totalSize += file.size || 0;
+          }
+        }
+      } catch (error) {
+        console.error(`[DOWNLOAD ALL] Error exploring directory ${dirPath}:`, error);
+        toast.error(`Failed to read directory: ${dirPath}`);
+      }
+    };
+
+    await exploreDirectory(startPath);
+
+    console.log(`[DOWNLOAD ALL] Discovered ${allFiles.length} files, total size: ${totalSize} bytes`);
+    return { files: allFiles, totalSize };
+  }, [sandboxId]);
+
+  // Function to download all files as a zip
+  const handleDownloadAll = useCallback(async () => {
+    if (!session?.access_token || isDownloadingAll) return;
+
+    try {
+      setIsDownloadingAll(true);
+      setDownloadProgress({ current: 0, total: 0, currentFile: 'Discovering files...' });
+
+      // Step 1: Discover all files
+      const { files } = await discoverAllFiles();
+
+      if (files.length === 0) {
+        toast.error('No files found to download');
+        return;
+      }
+
+      console.log(`[DOWNLOAD ALL] Starting download of ${files.length} files`);
+
+      // Step 2: Create zip and load files
+      const zip = new JSZip();
+      setDownloadProgress({ current: 0, total: files.length, currentFile: 'Creating archive...' });
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const relativePath = file.path.replace(/^\/workspace\//, ''); // Remove /workspace/ prefix
+
+        setDownloadProgress({
+          current: i + 1,
+          total: files.length,
+          currentFile: relativePath
+        });
+
+        try {
+          // Determine content type for proper loading
+          const contentType = FileCache.getContentTypeFromPath(file.path);
+
+          // Check cache first
+          const cacheKey = `${sandboxId}:${file.path}:${contentType}`;
+          let content = FileCache.get(cacheKey);
+
+          if (!content) {
+            // Load from server if not cached
+            console.log(`[DOWNLOAD ALL] Loading file from server: ${file.path}`);
+            const response = await fetch(
+              `${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/files/content?path=${encodeURIComponent(file.path)}`,
+              {
+                headers: { 'Authorization': `Bearer ${session.access_token}` }
+              }
+            );
+
+            if (!response.ok) {
+              console.warn(`[DOWNLOAD ALL] Failed to load file: ${file.path} (${response.status})`);
+              continue; // Skip this file and continue with others
+            }
+
+            if (contentType === 'blob') {
+              content = await response.blob();
+            } else if (contentType === 'json') {
+              content = JSON.stringify(await response.json(), null, 2);
+            } else {
+              content = await response.text();
+            }
+
+            // Cache the content
+            FileCache.set(cacheKey, content);
+          }
+
+          // Add to zip with proper structure
+          if (content instanceof Blob) {
+            zip.file(relativePath, content);
+          } else if (typeof content === 'string') {
+            // Handle blob URLs by fetching the actual content
+            if (content.startsWith('blob:')) {
+              try {
+                const blobResponse = await fetch(content);
+                const blobContent = await blobResponse.blob();
+                zip.file(relativePath, blobContent);
+              } catch (blobError) {
+                console.warn(`[DOWNLOAD ALL] Failed to fetch blob content for: ${file.path}`, blobError);
+                // Fallback: try to fetch from server directly
+                const fallbackResponse = await fetch(
+                  `${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/files/content?path=${encodeURIComponent(file.path)}`,
+                  { headers: { 'Authorization': `Bearer ${session.access_token}` } }
+                );
+                if (fallbackResponse.ok) {
+                  const fallbackBlob = await fallbackResponse.blob();
+                  zip.file(relativePath, fallbackBlob);
+                }
+              }
+            } else {
+              // Regular text content
+              zip.file(relativePath, content);
+            }
+          } else {
+            // Handle other content types (convert to JSON string)
+            zip.file(relativePath, JSON.stringify(content, null, 2));
+          }
+
+          console.log(`[DOWNLOAD ALL] Added to zip: ${relativePath} (${i + 1}/${files.length})`);
+
+        } catch (fileError) {
+          console.error(`[DOWNLOAD ALL] Error processing file ${file.path}:`, fileError);
+          // Continue with other files
+        }
+      }
+
+      // Step 3: Generate and download the zip
+      setDownloadProgress({
+        current: files.length,
+        total: files.length,
+        currentFile: 'Generating zip file...'
+      });
+
+      console.log('[DOWNLOAD ALL] Generating zip file...');
+      const zipBlob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      });
+
+      // Download the zip file
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `workspace-${sandboxId}-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+      toast.success(`Downloaded ${files.length} files as zip archive`);
+      console.log(`[DOWNLOAD ALL] Successfully created zip with ${files.length} files`);
+
+    } catch (error) {
+      console.error('[DOWNLOAD ALL] Error creating zip:', error);
+      toast.error(`Failed to create zip archive: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsDownloadingAll(false);
+      setDownloadProgress(null);
+    }
+  }, [sandboxId, session?.access_token, isDownloadingAll, discoverAllFiles]);
+
   // Helper function to check if a value is a Blob (type-safe version of instanceof)
   const isBlob = (value: any): value is Blob => {
     return value instanceof Blob;
@@ -176,12 +385,20 @@ export function FileViewerModal({
 
   // Helper function to clear the selected file
   const clearSelectedFile = useCallback(() => {
+    console.log(`[FILE VIEWER DEBUG] clearSelectedFile called, isFileListMode: ${isFileListMode}`);
     setSelectedFilePath(null);
     setRawContent(null);
     setTextContentForRenderer(null); // Clear derived text content
     setBlobUrlForRenderer(null); // Clear derived blob URL
     setContentError(null);
-  }, []);
+    // Only reset file list mode index when not in file list mode
+    if (!isFileListMode) {
+      console.log(`[FILE VIEWER DEBUG] Resetting currentFileIndex in clearSelectedFile`);
+      setCurrentFileIndex(-1);
+    } else {
+      console.log(`[FILE VIEWER DEBUG] Keeping currentFileIndex in clearSelectedFile because in file list mode`);
+    }
+  }, [isFileListMode]);
 
   // Core file opening function
   const openFile = useCallback(
@@ -227,6 +444,14 @@ export function FileViewerModal({
       clearSelectedFile();
       setSelectedFilePath(file.path);
 
+      // Only reset file index if we're NOT in file list mode or the file is not in the list
+      if (!isFileListMode || !filePathList?.includes(file.path)) {
+        console.log(`[FILE VIEWER DEBUG] Resetting currentFileIndex because not in file list mode or file not in list`);
+        setCurrentFileIndex(-1);
+      } else {
+        console.log(`[FILE VIEWER DEBUG] Keeping currentFileIndex because file is in file list mode`);
+      }
+
       // The useFileContentQuery hook will automatically handle loading the content
       // No need to manually fetch here - React Query will handle it
     },
@@ -234,6 +459,8 @@ export function FileViewerModal({
       selectedFilePath,
       clearSelectedFile,
       normalizePath,
+      isFileListMode,
+      filePathList,
     ],
   );
 
@@ -376,6 +603,51 @@ export function FileViewerModal({
     [sandboxId],
   );
 
+  // Navigation functions for file list mode
+  const navigateToFileByIndex = useCallback((index: number) => {
+    console.log('[FILE VIEWER DEBUG] navigateToFileByIndex called:', {
+      index,
+      isFileListMode,
+      filePathList,
+      filePathListLength: filePathList?.length
+    });
+
+    if (!isFileListMode || !filePathList || index < 0 || index >= filePathList.length) {
+      console.log('[FILE VIEWER DEBUG] navigateToFileByIndex early return - invalid conditions');
+      return;
+    }
+
+    const filePath = filePathList[index];
+    console.log('[FILE VIEWER DEBUG] Setting currentFileIndex to:', index, 'for file:', filePath);
+    setCurrentFileIndex(index);
+
+    // Create a temporary FileInfo object for the file
+    const fileName = filePath.split('/').pop() || '';
+    const normalizedPath = normalizePath(filePath);
+
+    const fileInfo: FileInfo = {
+      name: fileName,
+      path: normalizedPath,
+      is_dir: false,
+      size: 0,
+      mod_time: new Date().toISOString(),
+    };
+
+    openFile(fileInfo);
+  }, [isFileListMode, filePathList, normalizePath, openFile]);
+
+  const navigatePrevious = useCallback(() => {
+    if (currentFileIndex > 0) {
+      navigateToFileByIndex(currentFileIndex - 1);
+    }
+  }, [currentFileIndex, navigateToFileByIndex]);
+
+  const navigateNext = useCallback(() => {
+    if (isFileListMode && filePathList && currentFileIndex < filePathList.length - 1) {
+      navigateToFileByIndex(currentFileIndex + 1);
+    }
+  }, [currentFileIndex, isFileListMode, filePathList, navigateToFileByIndex]);
+
   // Handle initial file path - Runs ONLY ONCE on open if initialFilePath is provided
   useEffect(() => {
     // Only run if modal is open, initial path is provided, AND it hasn't been processed yet
@@ -383,6 +655,32 @@ export function FileViewerModal({
       console.log(
         `[FILE VIEWER] useEffect[initialFilePath]: Processing initial path: ${safeInitialFilePath}`,
       );
+
+      // If we're in file list mode, find the index and navigate to it
+      if (isFileListMode && filePathList) {
+        console.log('[FILE VIEWER DEBUG] Initial file path - file list mode detected:', {
+          isFileListMode,
+          filePathList,
+          safeInitialFilePath,
+          filePathListLength: filePathList.length
+        });
+
+        const normalizedInitialPath = normalizePath(safeInitialFilePath);
+        const index = filePathList.findIndex(path => normalizePath(path) === normalizedInitialPath);
+
+        console.log('[FILE VIEWER DEBUG] Found index for initial file:', {
+          normalizedInitialPath,
+          index,
+          foundPath: index !== -1 ? filePathList[index] : 'not found'
+        });
+
+        if (index !== -1) {
+          console.log(`[FILE VIEWER] File list mode: navigating to index ${index} for ${normalizedInitialPath}`);
+          navigateToFileByIndex(index);
+          setInitialPathProcessed(true);
+          return;
+        }
+      }
 
       // Normalize the initial path
       const fullPath = normalizePath(safeInitialFilePath);
@@ -434,7 +732,7 @@ export function FileViewerModal({
       );
       setInitialPathProcessed(false);
     }
-  }, [open, safeInitialFilePath, initialPathProcessed, normalizePath, currentPath, openFile]);
+  }, [open, safeInitialFilePath, initialPathProcessed, normalizePath, currentPath, openFile, isFileListMode, filePathList, navigateToFileByIndex]);
 
   // Effect to handle cached file content updates
   useEffect(() => {
@@ -505,6 +803,24 @@ export function FileViewerModal({
     };
   }, [blobUrlForRenderer, isDownloading]);
 
+  // Keyboard navigation
+  useEffect(() => {
+    if (!open || !isFileListMode) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigatePrevious();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateNext();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, isFileListMode, navigatePrevious, navigateNext]);
+
   // Handle modal close
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -522,6 +838,11 @@ export function FileViewerModal({
         // React Query will handle clearing the files data
         setInitialPathProcessed(false);
         setIsInitialLoad(true);
+        setCurrentFileIndex(-1); // Reset file index
+
+        // Reset download all state
+        setIsDownloadingAll(false);
+        setDownloadProgress(null);
       }
       onOpenChange(open);
     },
@@ -801,6 +1122,8 @@ export function FileViewerModal({
     }
   }, []);
 
+
+
   // Process uploaded file - Define after helpers
   const processUpload = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -810,9 +1133,15 @@ export function FileViewerModal({
       setIsUploading(true);
 
       try {
+        // Normalize filename to NFC
+        const normalizedName = normalizeFilenameToNFC(file.name);
+        const uploadPath = `${currentPath}/${normalizedName}`;
+
         const formData = new FormData();
-        formData.append('file', file);
-        formData.append('path', `${currentPath}/${file.name}`);
+        // If the filename was normalized, append with the normalized name in the field name
+        // The server will use the path parameter for the actual filename
+        formData.append('file', file, normalizedName);
+        formData.append('path', uploadPath);
 
         const supabase = createClient();
         const {
@@ -842,7 +1171,7 @@ export function FileViewerModal({
         // Reload the file list using React Query
         await refetchFiles();
 
-        toast.success(`Uploaded: ${file.name}`);
+        toast.success(`Uploaded: ${normalizedName}`);
       } catch (error) {
         console.error('Upload failed:', error);
         toast.error(
@@ -856,14 +1185,82 @@ export function FileViewerModal({
     [currentPath, sandboxId, refetchFiles],
   );
 
+  // Reset file list mode when modal opens without filePathList
+  useEffect(() => {
+    if (open && !filePathList) {
+      setCurrentFileIndex(-1);
+    }
+  }, [open, filePathList]);
+
   // --- Render --- //
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[90vw] md:max-w-[1200px] w-[95vw] h-[90vh] max-h-[900px] flex flex-col p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-4 py-2 border-b flex-shrink-0">
+        <DialogHeader className="px-4 py-2 border-b flex-shrink-0 flex flex-row gap-4 items-center">
           <DialogTitle className="text-lg font-semibold">
             Workspace Files
           </DialogTitle>
+
+          {/* Download progress display */}
+          {downloadProgress && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <Loader className="h-3 w-3 animate-spin" />
+                <span>
+                  {downloadProgress.total > 0
+                    ? `${downloadProgress.current}/${downloadProgress.total}`
+                    : 'Preparing...'
+                  }
+                </span>
+              </div>
+              <span className="max-w-[200px] truncate">
+                {downloadProgress.currentFile}
+              </span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            {/* Navigation arrows for file list mode */}
+            {(() => {
+              // Debug logging
+              console.log('[FILE VIEWER DEBUG] Navigation visibility check:', {
+                isFileListMode,
+                selectedFilePath,
+                filePathList,
+                filePathListLength: filePathList?.length,
+                currentFileIndex,
+                shouldShow: isFileListMode && selectedFilePath && filePathList && filePathList.length > 1 && currentFileIndex >= 0
+              });
+
+              return isFileListMode && selectedFilePath && filePathList && filePathList.length > 1 && currentFileIndex >= 0;
+            })() && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={navigatePrevious}
+                    disabled={currentFileIndex <= 0}
+                    className="h-8 w-8 p-0"
+                    title="Previous file (←)"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="text-xs text-muted-foreground px-1">
+                    {currentFileIndex + 1} / {filePathList.length}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={navigateNext}
+                    disabled={currentFileIndex >= filePathList.length - 1}
+                    className="h-8 w-8 p-0"
+                    title="Next file (→)"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+          </div>
         </DialogHeader>
 
         {/* Navigation Bar */}
@@ -979,20 +1376,40 @@ export function FileViewerModal({
             )}
 
             {!selectedFilePath && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleUpload}
-                disabled={isUploading}
-                className="h-8 gap-1"
-              >
-                {isUploading ? (
-                  <Loader className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="h-4 w-4" />
+              <>
+                {/* Download All button - only show when in home directory */}
+                {currentPath === '/workspace' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownloadAll}
+                    disabled={isDownloadingAll || isLoadingFiles}
+                    className="h-8 gap-1"
+                  >
+                    {isDownloadingAll ? (
+                      <Loader className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Archive className="h-4 w-4" />
+                    )}
+                    <span className="hidden sm:inline">Download All</span>
+                  </Button>
                 )}
-                <span className="hidden sm:inline">Upload</span>
-              </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleUpload}
+                  disabled={isUploading}
+                  className="h-8 gap-1"
+                >
+                  {isUploading ? (
+                    <Loader className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4" />
+                  )}
+                  <span className="hidden sm:inline">Upload</span>
+                </Button>
+              </>
             )}
 
             <input

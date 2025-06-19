@@ -15,6 +15,7 @@ import {
   formatTimestamp,
   getToolTitle,
   normalizeContentToString,
+  extractToolData,
   getFileIconAndColor,
 } from './utils';
 import { cn } from '@/lib/utils';
@@ -49,30 +50,30 @@ export function CompleteToolView({
   const [completeData, setCompleteData] = useState<CompleteContent>({});
   const [progress, setProgress] = useState(0);
 
-  // Extract completion summary and attachments from assistant content
   useEffect(() => {
     if (assistantContent) {
       try {
         const contentStr = normalizeContentToString(assistantContent);
-        
-        // Try to extract content from <complete> tag
-        const completeMatch = contentStr.match(/<complete[^>]*>([^<]*)<\/complete>/);
+
+        let cleanContent = contentStr
+          .replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '')
+          .replace(/<invoke name="complete"[\s\S]*?<\/invoke>/g, '')
+          .trim();
+
+        const completeMatch = cleanContent.match(/<complete[^>]*>([^<]*)<\/complete>/);
         if (completeMatch) {
           setCompleteData(prev => ({ ...prev, summary: completeMatch[1].trim() }));
-        } else {
-          // Fallback: use the whole content as summary
-          setCompleteData(prev => ({ ...prev, summary: contentStr }));
+        } else if (cleanContent) {
+          setCompleteData(prev => ({ ...prev, summary: cleanContent }));
         }
 
-        // Extract attachments if present
         const attachmentsMatch = contentStr.match(/attachments=["']([^"']*)["']/i);
         if (attachmentsMatch) {
           const attachments = attachmentsMatch[1].split(',').map(a => a.trim()).filter(a => a.length > 0);
           setCompleteData(prev => ({ ...prev, attachments }));
         }
 
-        // Try to extract any task list items
-        const taskMatches = contentStr.match(/- ([^\n]+)/g);
+        const taskMatches = cleanContent.match(/- ([^\n]+)/g);
         if (taskMatches) {
           const tasks = taskMatches.map(task => task.replace('- ', '').trim());
           setCompleteData(prev => ({ ...prev, tasksCompleted: tasks }));
@@ -83,18 +84,14 @@ export function CompleteToolView({
     }
   }, [assistantContent]);
 
-  // Extract result from tool content
   useEffect(() => {
     if (toolContent && !isStreaming) {
       try {
         const contentStr = normalizeContentToString(toolContent);
-        
-        // Try to extract from ToolResult pattern
         const toolResultMatch = contentStr.match(/ToolResult\([^)]*output=['"]([^'"]+)['"]/);
         if (toolResultMatch) {
           setCompleteData(prev => ({ ...prev, result: toolResultMatch[1] }));
         } else {
-          // Fallback: use the content directly
           setCompleteData(prev => ({ ...prev, result: contentStr }));
         }
       } catch (e) {
@@ -103,7 +100,6 @@ export function CompleteToolView({
     }
   }, [toolContent, isStreaming]);
 
-  // Simulate progress when streaming
   useEffect(() => {
     if (isStreaming) {
       const timer = setInterval(() => {
@@ -143,13 +139,13 @@ export function CompleteToolView({
               </CardTitle>
             </div>
           </div>
-          
+
           {!isStreaming && (
-            <Badge 
-              variant="secondary" 
+            <Badge
+              variant="secondary"
               className={
-                isSuccess 
-                  ? "bg-gradient-to-b from-emerald-200 to-emerald-100 text-emerald-700 dark:from-emerald-800/50 dark:to-emerald-900/60 dark:text-emerald-300" 
+                isSuccess
+                  ? "bg-gradient-to-b from-emerald-200 to-emerald-100 text-emerald-700 dark:from-emerald-800/50 dark:to-emerald-900/60 dark:text-emerald-300"
                   : "bg-gradient-to-b from-rose-200 to-rose-100 text-rose-700 dark:from-rose-800/50 dark:to-rose-900/60 dark:text-rose-300"
               }
             >
@@ -211,7 +207,7 @@ export function CompleteToolView({
                     const { icon: FileIcon, color, bgColor } = getFileIconAndColor(attachment);
                     const fileName = attachment.split('/').pop() || attachment;
                     const filePath = attachment.includes('/') ? attachment.substring(0, attachment.lastIndexOf('/')) : '';
-                    
+
                     return (
                       <button
                         key={index}
@@ -255,7 +251,7 @@ export function CompleteToolView({
                 </div>
                 <div className="space-y-2">
                   {completeData.tasksCompleted.map((task, index) => (
-                    <div 
+                    <div
                       key={index}
                       className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg border border-border/50"
                     >
@@ -284,7 +280,7 @@ export function CompleteToolView({
                     {progress}%
                   </span>
                 </div>
-                <Progress value={progress} className="h-2" />
+                <Progress value={progress} className="h-1" />
               </div>
             )}
 
@@ -314,7 +310,7 @@ export function CompleteToolView({
             Task Completion
           </Badge>
         </div>
-        
+
         <div className="text-xs text-zinc-500 dark:text-zinc-400">
           {toolTimestamp && !isStreaming
             ? formatTimestamp(toolTimestamp)

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { handleApiError } from './error-handler';
 
 // Get backend URL from environment variables
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
@@ -26,6 +27,13 @@ export class BillingError extends Error {
     // Set the prototype explicitly.
     Object.setPrototypeOf(this, BillingError.prototype);
   }
+}
+
+export class NoAccessTokenAvailableError extends Error {
+  constructor(message?: string, options?: { cause?: Error }) {
+    super(message || 'No access token available', options);
+  }
+  name = 'NoAccessTokenAvailableError';
 }
 
 // Type Definitions (moved from potential separate file for clarity)
@@ -158,6 +166,7 @@ export const getProjects = async (): Promise<Project[]> => {
     return mappedProjects;
   } catch (err) {
     console.error('Error fetching projects:', err);
+    handleApiError(err, { operation: 'load projects', resource: 'projects' });
     // Return empty array for permission errors to avoid crashing the UI
     return [];
   }
@@ -251,6 +260,7 @@ export const getProject = async (projectId: string): Promise<Project> => {
     return mappedProject;
   } catch (error) {
     console.error(`Error fetching project ${projectId}:`, error);
+    handleApiError(error, { operation: 'load project', resource: `project ${projectId}` });
     throw error;
   }
 };
@@ -283,10 +293,12 @@ export const createProject = async (
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    handleApiError(error, { operation: 'create project', resource: 'project' });
+    throw error;
+  }
 
-  // Map the database response to our Project type
-  return {
+  const project = {
     id: data.project_id,
     name: data.name,
     description: data.description || '',
@@ -294,6 +306,7 @@ export const createProject = async (
     created_at: data.created_at,
     sandbox: { id: '', pass: '', vnc_preview: '' },
   };
+  return project;
 };
 
 export const updateProject = async (
@@ -320,11 +333,14 @@ export const updateProject = async (
 
   if (error) {
     console.error('Error updating project:', error);
+    handleApiError(error, { operation: 'update project', resource: `project ${projectId}` });
     throw error;
   }
 
   if (!updatedData) {
-    throw new Error('No data returned from update');
+    const noDataError = new Error('No data returned from update');
+    handleApiError(noDataError, { operation: 'update project', resource: `project ${projectId}` });
+    throw noDataError;
   }
 
   // Dispatch a custom event to notify components about the project change
@@ -344,7 +360,7 @@ export const updateProject = async (
   }
 
   // Return formatted project data - use same mapping as getProject
-  return {
+  const project = {
     id: updatedData.project_id,
     name: updatedData.name,
     description: updatedData.description || '',
@@ -357,6 +373,7 @@ export const updateProject = async (
       sandbox_url: '',
     },
   };
+  return project;
 };
 
 export const deleteProject = async (projectId: string): Promise<void> => {
@@ -366,7 +383,10 @@ export const deleteProject = async (projectId: string): Promise<void> => {
     .delete()
     .eq('project_id', projectId);
 
-  if (error) throw error;
+  if (error) {
+    handleApiError(error, { operation: 'delete project', resource: `project ${projectId}` });
+    throw error;
+  }
 };
 
 // Thread APIs
@@ -399,21 +419,22 @@ export const getThreads = async (projectId?: string): Promise<Thread[]> => {
   const { data, error } = await query;
 
   if (error) {
-    console.error('[API] Error fetching threads:', error);
+    handleApiError(error, { operation: 'load threads', resource: projectId ? `threads for project ${projectId}` : 'threads' });
     throw error;
   }
 
-  console.log('[API] Raw threads from DB:', data?.length, data);
-
-  // Map database fields to ensure consistency with our Thread type
-  const mappedThreads: Thread[] = (data || []).map((thread) => ({
-    thread_id: thread.thread_id,
-    account_id: thread.account_id,
-    project_id: thread.project_id,
-    created_at: thread.created_at,
-    updated_at: thread.updated_at,
-  }));
-
+  const mappedThreads: Thread[] = (data || [])
+    .filter((thread) => {
+      const metadata = thread.metadata || {};
+      return !metadata.is_agent_builder;
+    })
+    .map((thread) => ({
+      thread_id: thread.thread_id,
+      account_id: thread.account_id,
+      project_id: thread.project_id,
+      created_at: thread.created_at,
+      updated_at: thread.updated_at,
+    }));
   return mappedThreads;
 };
 
@@ -425,7 +446,10 @@ export const getThread = async (threadId: string): Promise<Thread> => {
     .eq('thread_id', threadId)
     .single();
 
-  if (error) throw error;
+  if (error) {
+    handleApiError(error, { operation: 'load thread', resource: `thread ${threadId}` });
+    throw error;
+  }
 
   return data;
 };
@@ -450,8 +474,10 @@ export const createThread = async (projectId: string): Promise<Thread> => {
     .select()
     .single();
 
-  if (error) throw error;
-
+  if (error) {
+    handleApiError(error, { operation: 'create thread', resource: 'thread' });
+    throw error;
+  }
   return data;
 };
 
@@ -477,6 +503,7 @@ export const addUserMessage = async (
 
   if (error) {
     console.error('Error adding user message:', error);
+    handleApiError(error, { operation: 'add message', resource: 'message' });
     throw new Error(`Error adding message: ${error.message}`);
   }
 };
@@ -484,22 +511,39 @@ export const addUserMessage = async (
 export const getMessages = async (threadId: string): Promise<Message[]> => {
   const supabase = createClient();
 
-  const { data, error } = await supabase
-    .from('messages')
-    .select('*')
-    .eq('thread_id', threadId)
-    .neq('type', 'cost')
-    .neq('type', 'summary')
-    .order('created_at', { ascending: true });
+  let allMessages: Message[] = [];
+  let from = 0;
+  const batchSize = 1000;
+  let hasMore = true;
 
-  if (error) {
-    console.error('Error fetching messages:', error);
-    throw new Error(`Error getting messages: ${error.message}`);
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('thread_id', threadId)
+      .neq('type', 'cost')
+      .neq('type', 'summary')
+      .order('created_at', { ascending: true })
+      .range(from, from + batchSize - 1);
+
+    if (error) {
+      console.error('Error fetching messages:', error);
+      handleApiError(error, { operation: 'load messages', resource: `messages for thread ${threadId}` });
+      throw new Error(`Error getting messages: ${error.message}`);
+    }
+
+    if (data && data.length > 0) {
+      allMessages = allMessages.concat(data);
+      from += batchSize;
+      hasMore = data.length === batchSize;
+    } else {
+      hasMore = false;
+    }
   }
 
-  console.log('[API] Messages fetched:', data);
+  console.log('[API] Messages fetched count:', allMessages.length);
 
-  return data || [];
+  return allMessages;
 };
 
 // Agent APIs
@@ -510,6 +554,7 @@ export const startAgent = async (
     enable_thinking?: boolean;
     reasoning_effort?: string;
     stream?: boolean;
+    agent_id?: string;
   },
 ): Promise<{ agent_run_id: string }> => {
   try {
@@ -519,7 +564,7 @@ export const startAgent = async (
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      throw new Error('No access token available');
+      throw new NoAccessTokenAvailableError();
     }
 
     // Check if backend URL is configured
@@ -533,16 +578,35 @@ export const startAgent = async (
       `[API] Starting agent for thread ${threadId} using ${API_URL}/thread/${threadId}/agent/start`,
     );
 
+    const defaultOptions = {
+      model_name: 'claude-3-7-sonnet-latest',
+      enable_thinking: false,
+      reasoning_effort: 'low',
+      stream: true,
+      agent_id: undefined,
+    };
+
+    const finalOptions = { ...defaultOptions, ...options };
+
+    const body: any = {
+      model_name: finalOptions.model_name,
+      enable_thinking: finalOptions.enable_thinking,
+      reasoning_effort: finalOptions.reasoning_effort,
+      stream: finalOptions.stream,
+    };
+    
+    // Only include agent_id if it's provided
+    if (finalOptions.agent_id) {
+      body.agent_id = finalOptions.agent_id;
+    }
+
     const response = await fetch(`${API_URL}/thread/${threadId}/agent/start`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${session.access_token}`,
       },
-      // Add cache: 'no-store' to prevent caching
-      cache: 'no-store',
-      // Add the body, stringifying the options or an empty object
-      body: JSON.stringify(options || {}),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -584,26 +648,34 @@ export const startAgent = async (
       );
     }
 
-    return response.json();
+    const result = await response.json();
+    return result;
   } catch (error) {
     // Rethrow BillingError instances directly
     if (error instanceof BillingError) {
       throw error;
     }
 
-    console.error('[API] Failed to start agent:', error);
+    if (error instanceof NoAccessTokenAvailableError) {
+      throw error;
+    }
 
-    // Provide clearer error message for network errors
+    console.error('[API] Failed to start agent:', error);
+    
+    // Handle different error types with appropriate user messages
     if (
       error instanceof TypeError &&
       error.message.includes('Failed to fetch')
     ) {
-      throw new Error(
+      const networkError = new Error(
         `Cannot connect to backend server. Please check your internet connection and make sure the backend is running.`,
       );
+      handleApiError(networkError, { operation: 'start agent', resource: 'AI assistant' });
+      throw networkError;
     }
 
-    // Rethrow other caught errors
+    // For other errors, add context and rethrow
+    handleApiError(error, { operation: 'start agent', resource: 'AI assistant' });
     throw error;
   }
 };
@@ -628,7 +700,9 @@ export const stopAgent = async (agentRunId: string): Promise<void> => {
   } = await supabase.auth.getSession();
 
   if (!session?.access_token) {
-    throw new Error('No access token available');
+    const authError = new NoAccessTokenAvailableError();
+    handleApiError(authError, { operation: 'stop agent', resource: 'AI assistant' });
+    throw authError;
   }
 
   const response = await fetch(`${API_URL}/agent-run/${agentRunId}/stop`, {
@@ -642,7 +716,9 @@ export const stopAgent = async (agentRunId: string): Promise<void> => {
   });
 
   if (!response.ok) {
-    throw new Error(`Error stopping agent: ${response.statusText}`);
+    const stopError = new Error(`Error stopping agent: ${response.statusText}`);
+    handleApiError(stopError, { operation: 'stop agent', resource: 'AI assistant' });
+    throw stopError;
   }
 };
 
@@ -665,7 +741,7 @@ export const getAgentStatus = async (agentRunId: string): Promise<AgentRun> => {
 
     if (!session?.access_token) {
       console.error('[API] No access token available for getAgentStatus');
-      throw new Error('No access token available');
+      throw new NoAccessTokenAvailableError();
     }
 
     const url = `${API_URL}/agent-run/${agentRunId}`;
@@ -709,6 +785,7 @@ export const getAgentStatus = async (agentRunId: string): Promise<AgentRun> => {
     return data;
   } catch (error) {
     console.error('[API] Failed to get agent status:', error);
+    handleApiError(error, { operation: 'get agent status', resource: 'AI assistant status', silent: true });
     throw error;
   }
 };
@@ -721,7 +798,7 @@ export const getAgentRuns = async (threadId: string): Promise<AgentRun[]> => {
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      throw new Error('No access token available');
+      throw new NoAccessTokenAvailableError();
     }
 
     const response = await fetch(`${API_URL}/thread/${threadId}/agent-runs`, {
@@ -739,7 +816,12 @@ export const getAgentRuns = async (threadId: string): Promise<AgentRun[]> => {
     const data = await response.json();
     return data.agent_runs || [];
   } catch (error) {
+    if (error instanceof NoAccessTokenAvailableError) {
+      throw error;
+    }
+
     console.error('Failed to get agent runs:', error);
+    handleApiError(error, { operation: 'load agent runs', resource: 'conversation history' });
     throw error;
   }
 };
@@ -824,8 +906,9 @@ export const streamAgent = (
       } = await supabase.auth.getSession();
 
       if (!session?.access_token) {
+        const authError = new NoAccessTokenAvailableError();
         console.error('[STREAM] No auth token available');
-        callbacks.onError(new Error('Authentication required'));
+        callbacks.onError(authError);
         callbacks.onClose();
         return;
       }
@@ -1076,9 +1159,11 @@ export const createSandboxFile = async (
       );
     }
 
-    return response.json();
+    const result = await response.json();
+    return result;
   } catch (error) {
     console.error('Failed to create sandbox file:', error);
+    handleApiError(error, { operation: 'create file', resource: `file ${filePath}` });
     throw error;
   }
 };
@@ -1128,9 +1213,11 @@ export const createSandboxFileJson = async (
       );
     }
 
-    return response.json();
+    const result = await response.json();
+    return result;
   } catch (error) {
     console.error('Failed to create sandbox file with JSON:', error);
+    handleApiError(error, { operation: 'create file', resource: `file ${filePath}` });
     throw error;
   }
 };
@@ -1192,6 +1279,7 @@ export const listSandboxFiles = async (
     return data.files || [];
   } catch (error) {
     console.error('Failed to list sandbox files:', error);
+    // handleApiError(error, { operation: 'list files', resource: `directory ${path}` });
     throw error;
   }
 };
@@ -1248,6 +1336,7 @@ export const getSandboxFileContent = async (
     }
   } catch (error) {
     console.error('Failed to get sandbox file content:', error);
+    handleApiError(error, { operation: 'load file content', resource: `file ${path}` });
     throw error;
   }
 };
@@ -1325,6 +1414,7 @@ export const getPublicProjects = async (): Promise<Project[]> => {
     return mappedProjects;
   } catch (err) {
     console.error('Error fetching public projects:', err);
+    handleApiError(err, { operation: 'load public projects', resource: 'public projects' });
     return [];
   }
 };
@@ -1340,7 +1430,7 @@ export const initiateAgent = async (
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      throw new Error('No access token available');
+      throw new NoAccessTokenAvailableError();
     }
 
     if (!API_URL) {
@@ -1385,7 +1475,8 @@ export const initiateAgent = async (
       );
     }
 
-    return response.json();
+    const result = await response.json();
+    return result;
   } catch (error) {
     console.error('[API] Failed to initiate agent:', error);
 
@@ -1393,11 +1484,13 @@ export const initiateAgent = async (
       error instanceof TypeError &&
       error.message.includes('Failed to fetch')
     ) {
-      throw new Error(
+      const networkError = new Error(
         `Cannot connect to backend server. Please check your internet connection and make sure the backend is running.`,
       );
+      handleApiError(networkError, { operation: 'initiate agent', resource: 'AI assistant' });
+      throw networkError;
     }
-
+    handleApiError(error, { operation: 'initiate agent' });
     throw error;
   }
 };
@@ -1414,7 +1507,6 @@ export const checkApiHealth = async (): Promise<HealthCheckResponse> => {
 
     return response.json();
   } catch (error) {
-    console.error('API health check failed:', error);
     throw error;
   }
 };
@@ -1424,6 +1516,7 @@ export interface CreateCheckoutSessionRequest {
   price_id: string;
   success_url: string;
   cancel_url: string;
+  referral_id?: string;
 }
 
 export interface CreatePortalSessionRequest {
@@ -1510,16 +1603,20 @@ export const createCheckoutSession = async (
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      throw new Error('No access token available');
+      throw new NoAccessTokenAvailableError();
     }
-
+    
+    
+    const requestBody = { ...request, tolt_referral: window.tolt_referral };
+    console.log('Tolt Referral ID:', requestBody.tolt_referral);
+    
     const response = await fetch(`${API_URL}/billing/create-checkout-session`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -1561,6 +1658,7 @@ export const createCheckoutSession = async (
     }
   } catch (error) {
     console.error('Failed to create checkout session:', error);
+    handleApiError(error, { operation: 'create checkout session', resource: 'billing' });
     throw error;
   }
 };
@@ -1576,7 +1674,7 @@ export const createPortalSession = async (
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      throw new Error('No access token available');
+      throw new NoAccessTokenAvailableError();
     }
 
     const response = await fetch(`${API_URL}/billing/create-portal-session`, {
@@ -1604,6 +1702,7 @@ export const createPortalSession = async (
     return response.json();
   } catch (error) {
     console.error('Failed to create portal session:', error);
+    handleApiError(error, { operation: 'create portal session', resource: 'billing portal' });
     throw error;
   }
 };
@@ -1617,7 +1716,7 @@ export const getSubscription = async (): Promise<SubscriptionStatus> => {
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      throw new Error('No access token available');
+      throw new NoAccessTokenAvailableError();
     }
 
     const response = await fetch(`${API_URL}/billing/subscription`, {
@@ -1641,7 +1740,12 @@ export const getSubscription = async (): Promise<SubscriptionStatus> => {
 
     return response.json();
   } catch (error) {
+    if (error instanceof NoAccessTokenAvailableError) {
+      throw error;
+    }
+
     console.error('Failed to get subscription:', error);
+    handleApiError(error, { operation: 'load subscription', resource: 'billing information' });
     throw error;
   }
 };
@@ -1654,7 +1758,7 @@ export const getAvailableModels = async (): Promise<AvailableModelsResponse> => 
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      throw new Error('No access token available');
+      throw new NoAccessTokenAvailableError();
     }
 
     const response = await fetch(`${API_URL}/billing/available-models`, {
@@ -1678,7 +1782,12 @@ export const getAvailableModels = async (): Promise<AvailableModelsResponse> => 
 
     return response.json();
   } catch (error) {
+    if (error instanceof NoAccessTokenAvailableError) {
+      throw error;
+    }
+
     console.error('Failed to get available models:', error);
+    handleApiError(error, { operation: 'load available models', resource: 'AI models' });
     throw error;
   }
 };
@@ -1692,7 +1801,7 @@ export const checkBillingStatus = async (): Promise<BillingStatusResponse> => {
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      throw new Error('No access token available');
+      throw new NoAccessTokenAvailableError();
     }
 
     const response = await fetch(`${API_URL}/billing/check-status`, {
@@ -1716,7 +1825,92 @@ export const checkBillingStatus = async (): Promise<BillingStatusResponse> => {
 
     return response.json();
   } catch (error) {
+    if (error instanceof NoAccessTokenAvailableError) {
+      throw error;
+    }
+
     console.error('Failed to check billing status:', error);
     throw error;
   }
+};
+
+// Transcription API Types
+export interface TranscriptionResponse {
+  text: string;
+}
+
+// Transcription API Functions
+export const transcribeAudio = async (audioFile: File): Promise<TranscriptionResponse> => {
+  try {
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new NoAccessTokenAvailableError();
+    }
+
+    const formData = new FormData();
+    formData.append('audio_file', audioFile);
+
+    const response = await fetch(`${API_URL}/transcription`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response
+        .text()
+        .catch(() => 'No error details available');
+      console.error(
+        `Error transcribing audio: ${response.status} ${response.statusText}`,
+        errorText,
+      );
+      throw new Error(
+        `Error transcribing audio: ${response.statusText} (${response.status})`,
+      );
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof NoAccessTokenAvailableError) {
+      throw error;
+    }
+
+    console.error('Failed to transcribe audio:', error);
+    handleApiError(error, { operation: 'transcribe audio', resource: 'speech-to-text' });
+    throw error;
+  }
+};
+
+export const getAgentBuilderChatHistory = async (agentId: string): Promise<{messages: Message[], thread_id: string | null}> => {
+  const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new NoAccessTokenAvailableError();
+  }
+
+  const response = await fetch(`${API_URL}/agents/${agentId}/builder-chat-history`, {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'No error details available');
+    console.error(`Error getting agent builder chat history: ${response.status} ${response.statusText}`, errorText);
+    throw new Error(`Error getting agent builder chat history: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  console.log('[API] Agent builder chat history fetched:', data);
+
+  return data;
 };

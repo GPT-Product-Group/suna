@@ -13,12 +13,13 @@ import {
   Wrench,
 } from 'lucide-react';
 import { ToolViewProps } from './types';
-import { formatTimestamp, getToolTitle } from './utils';
+import { formatTimestamp, getToolTitle, extractToolData } from './utils';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { LoadingState } from './shared/LoadingState';
 
 export function GenericToolView({
   name = 'generic-tool',
@@ -36,12 +37,76 @@ export function GenericToolView({
   const formatContent = (content: any) => {
     if (!content) return null;
 
+    // Use the new parser for backwards compatibility
+    const { toolResult } = extractToolData(content);
+
+    if (toolResult) {
+      // Format the structured content nicely
+      const formatted: any = {
+        tool: toolResult.xmlTagName || toolResult.functionName,
+      };
+
+      if (toolResult.arguments && Object.keys(toolResult.arguments).length > 0) {
+        formatted.parameters = toolResult.arguments;
+      }
+
+      if (toolResult.toolOutput) {
+        formatted.output = toolResult.toolOutput;
+      }
+
+      if (toolResult.isSuccess !== undefined) {
+        formatted.success = toolResult.isSuccess;
+      }
+
+      return JSON.stringify(formatted, null, 2);
+    }
+
+    // Fallback to legacy format handling
     if (typeof content === 'object') {
+      // Check for direct structured format (legacy)
+      if ('tool_name' in content || 'xml_tag_name' in content) {
+        const formatted: any = {
+          tool: content.tool_name || content.xml_tag_name || 'unknown',
+        };
+
+        if (content.parameters && Object.keys(content.parameters).length > 0) {
+          formatted.parameters = content.parameters;
+        }
+
+        if (content.result) {
+          formatted.result = content.result;
+        }
+
+        return JSON.stringify(formatted, null, 2);
+      }
+
+      // Check if it has a content field that might contain the structured data (legacy)
+      if ('content' in content && typeof content.content === 'object') {
+        const innerContent = content.content;
+        if ('tool_name' in innerContent || 'xml_tag_name' in innerContent) {
+          const formatted: any = {
+            tool: innerContent.tool_name || innerContent.xml_tag_name || 'unknown',
+          };
+
+          if (innerContent.parameters && Object.keys(innerContent.parameters).length > 0) {
+            formatted.parameters = innerContent.parameters;
+          }
+
+          if (innerContent.result) {
+            formatted.result = innerContent.result;
+          }
+
+          return JSON.stringify(formatted, null, 2);
+        }
+      }
+
+      // Fall back to old format handling
       if (content.content && typeof content.content === 'string') {
         return content.content;
       }
       return JSON.stringify(content, null, 2);
     }
+
     if (typeof content === 'string') {
       try {
         const parsedJson = JSON.parse(content);
@@ -77,13 +142,13 @@ export function GenericToolView({
               </CardTitle>
             </div>
           </div>
-          
+
           {!isStreaming && (
-            <Badge 
-              variant="secondary" 
+            <Badge
+              variant="secondary"
               className={
-                isSuccess 
-                  ? "bg-gradient-to-b from-emerald-200 to-emerald-100 text-emerald-700 dark:from-emerald-800/50 dark:to-emerald-900/60 dark:text-emerald-300" 
+                isSuccess
+                  ? "bg-gradient-to-b from-emerald-200 to-emerald-100 text-emerald-700 dark:from-emerald-800/50 dark:to-emerald-900/60 dark:text-emerald-300"
                   : "bg-gradient-to-b from-rose-200 to-rose-100 text-rose-700 dark:from-rose-800/50 dark:to-rose-900/60 dark:text-rose-300"
               }
             >
@@ -100,21 +165,14 @@ export function GenericToolView({
 
       <CardContent className="p-0 h-full flex-1 overflow-hidden relative">
         {isStreaming ? (
-          <div className="flex flex-col items-center justify-center h-full py-12 px-6 bg-gradient-to-b from-white to-zinc-50 dark:from-zinc-950 dark:to-zinc-900">
-            <div className="text-center w-full max-w-xs">
-              <div className="w-16 h-16 rounded-full mx-auto mb-6 flex items-center justify-center bg-gradient-to-b from-orange-100 to-orange-50 shadow-inner dark:from-orange-800/40 dark:to-orange-900/60 dark:shadow-orange-950/20">
-                <Loader2 className="h-8 w-8 animate-spin text-orange-500 dark:text-orange-400" />
-              </div>
-              <h3 className="text-lg font-medium text-zinc-900 dark:text-zinc-100 mb-2">
-                Executing tool
-              </h3>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
-                <span className="font-mono text-xs break-all">{name}</span>
-              </p>
-              <Progress value={progress} className="w-full h-2" />
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2">{progress}%</p>
-            </div>
-          </div>
+          <LoadingState
+            icon={Wrench}
+            iconColor="text-orange-500 dark:text-orange-400"
+            bgColor="bg-gradient-to-b from-orange-100 to-orange-50 shadow-inner dark:from-orange-800/40 dark:to-orange-900/60 dark:shadow-orange-950/20"
+            title="Executing tool"
+            filePath={name}
+            showProgress={true}
+          />
         ) : formattedAssistantContent || formattedToolContent ? (
           <ScrollArea className="h-full w-full">
             <div className="p-4 space-y-4">
@@ -165,7 +223,7 @@ export function GenericToolView({
           </div>
         )}
       </CardContent>
-      
+
       <div className="px-4 py-2 h-10 bg-gradient-to-r from-zinc-50/90 to-zinc-100/90 dark:from-zinc-900/90 dark:to-zinc-800/90 backdrop-blur-sm border-t border-zinc-200 dark:border-zinc-800 flex justify-between items-center gap-4">
         <div className="h-full flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
           {!isStreaming && (formattedAssistantContent || formattedToolContent) && (
@@ -175,7 +233,7 @@ export function GenericToolView({
             </Badge>
           )}
         </div>
-        
+
         <div className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
           <Clock className="h-3.5 w-3.5" />
           {toolTimestamp && !isStreaming

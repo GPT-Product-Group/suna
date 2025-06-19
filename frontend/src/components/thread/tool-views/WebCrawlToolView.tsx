@@ -25,6 +25,7 @@ import {
   extractWebpageContent,
   formatTimestamp,
   getToolTitle,
+  extractToolData,
 } from './utils';
 import { cn, truncateString } from '@/lib/utils';
 import { useTheme } from 'next-themes';
@@ -49,7 +50,24 @@ export function WebCrawlToolView({
   const [progress, setProgress] = useState(0);
   const [copiedContent, setCopiedContent] = useState(false);
 
-  const url = extractCrawlUrl(assistantContent);
+  // Try to extract data using the new parser first
+  const assistantToolData = extractToolData(assistantContent);
+  const toolToolData = extractToolData(toolContent);
+
+  let url: string | null = null;
+
+  // Use data from the new format if available
+  if (assistantToolData.toolResult) {
+    url = assistantToolData.url;
+  } else if (toolToolData.toolResult) {
+    url = toolToolData.url;
+  }
+
+  // If not found in new format, fall back to legacy extraction
+  if (!url) {
+    url = extractCrawlUrl(assistantContent);
+  }
+
   const webpageContent = extractWebpageContent(toolContent);
   const toolTitle = getToolTitle(name);
 
@@ -166,7 +184,7 @@ export function WebCrawlToolView({
               <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
                 Fetching content from <span className="font-mono text-xs break-all">{domain}</span>
               </p>
-              <Progress value={progress} className="w-full h-2" />
+              <Progress value={progress} className="w-full h-1" />
               <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2">{progress}% complete</p>
             </div>
           </div>

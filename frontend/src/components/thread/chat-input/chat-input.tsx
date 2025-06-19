@@ -14,6 +14,7 @@ import { handleFiles } from './file-upload-handler';
 import { MessageInput } from './message-input';
 import { AttachmentGroup } from '../attachment-group';
 import { useModelSelection } from './_use-model-selection';
+import { AgentSelector } from './agent-selector';
 import { useFileDelete } from '@/hooks/react-query/files';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -38,7 +39,11 @@ export interface ChatInputProps {
   onFileBrowse?: () => void;
   sandboxId?: string;
   hideAttachments?: boolean;
-  messages?: any[]; // Add messages prop to check for existing file references
+  selectedAgentId?: string;
+  onAgentSelect?: (agentId: string | undefined) => void;
+  agentName?: string;
+  messages?: any[];
+  bgColor?: string;
 }
 
 export interface UploadedFile {
@@ -64,7 +69,11 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
       onFileBrowse,
       sandboxId,
       hideAttachments = false,
+      selectedAgentId,
+      onAgentSelect,
+      agentName,
       messages = [],
+      bgColor = 'bg-sidebar',
     },
     ref,
   ) => {
@@ -157,6 +166,17 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
       }
     };
 
+    const handleTranscription = (transcribedText: string) => {
+      const currentValue = isControlled ? controlledValue : uncontrolledValue;
+      const newValue = currentValue ? `${currentValue} ${transcribedText}` : transcribedText;
+
+      if (isControlled) {
+        controlledOnChange(newValue);
+      } else {
+        setUncontrolledValue(newValue);
+      }
+    };
+
     const removeUploadedFile = (index: number) => {
       const fileToRemove = uploadedFiles[index];
 
@@ -205,7 +225,7 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
     };
 
     return (
-      <div className="mx-auto w-full max-w-4xl px-4">
+      <div className="mx-auto w-full max-w-4xl">
         <Card
           className="shadow-none w-full max-w-4xl mx-auto bg-transparent border-none rounded-xl overflow-hidden"
           onDragOver={handleDragOver}
@@ -230,7 +250,7 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
           }}
         >
           <div className="w-full text-sm flex flex-col justify-between items-start rounded-lg">
-            <CardContent className="w-full p-1.5 pb-2 bg-[#efefef] dark:bg-sidebar rounded-2xl border">
+            <CardContent className={`w-full p-1.5 pb-2 ${bgColor} rounded-2xl border`}>
               <AttachmentGroup
                 files={uploadedFiles || []}
                 sandboxId={sandboxId}
@@ -239,12 +259,12 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
                 maxHeight="216px"
                 showPreviews={true}
               />
-
               <MessageInput
                 ref={textareaRef}
                 value={value}
                 onChange={handleChange}
                 onSubmit={handleSubmit}
+                onTranscription={handleTranscription}
                 placeholder={placeholder}
                 loading={loading}
                 disabled={disabled}
@@ -281,7 +301,7 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
           >
             <div className="text-xs text-muted-foreground flex items-center gap-2">
               <Loader2 className="h-3 w-3 animate-spin" />
-              <span>Kortix Suna is working...</span>
+              <span>{agentName ? `${agentName} is working...` : 'Suna is working...'}</span>
             </div>
           </motion.div>
         )}

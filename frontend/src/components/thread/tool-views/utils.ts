@@ -13,6 +13,8 @@ import {
   FileArchive,
   Table,
 } from 'lucide-react';
+import { parseXmlToolCalls, isNewXmlFormat } from './xml-parser';
+import { parseToolResult, ParsedToolResult } from './tool-result-parser';
 
 // Helper function to format timestamp
 export function formatTimestamp(isoString?: string): string {
@@ -51,7 +53,7 @@ export function getToolTitle(toolName: string): string {
     'complete': 'Task Complete',
     'execute-data-provider-call': 'Data Provider Call',
     'get-data-provider-endpoints': 'Data Endpoints',
-
+    'deploy': 'Deploy',
 
     'generic-tool': 'Tool',
     'default': 'Tool',
@@ -257,9 +259,46 @@ export function extractExitCode(content: string | object | undefined | null): nu
 
 // Helper to extract file path from commands
 export function extractFilePath(content: string | object | undefined | null): string | null {
-  // Convert content to string using the helper
   const contentStr = normalizeContentToString(content);
   if (!contentStr) return null;
+
+  try {
+    // Try to parse content as JSON first
+    const parsedContent = JSON.parse(contentStr);
+    if (parsedContent.content) {
+      // Check if it's the new XML format
+      if (isNewXmlFormat(parsedContent.content)) {
+        const toolCalls = parseXmlToolCalls(parsedContent.content);
+        if (toolCalls.length > 0 && toolCalls[0].parameters.file_path) {
+          return cleanFilePath(toolCalls[0].parameters.file_path);
+        }
+      }
+      
+      // Fall back to old format
+      const oldFormatMatch = parsedContent.content.match(
+        /file_path=["']([^"']+)["']/,
+      );
+      if (oldFormatMatch) {
+        return cleanFilePath(oldFormatMatch[1]);
+      }
+    }
+  } catch (e) {
+    // Fall back to direct regex search if JSON parsing fails
+  }
+
+  // Check if it's the new XML format in raw content
+  if (isNewXmlFormat(contentStr)) {
+    const toolCalls = parseXmlToolCalls(contentStr);
+    if (toolCalls.length > 0 && toolCalls[0].parameters.file_path) {
+      return cleanFilePath(toolCalls[0].parameters.file_path);
+    }
+  }
+
+  // Direct regex search in the content string (old format)
+  const directMatch = contentStr.match(/file_path=["']([^"']+)["']/);
+  if (directMatch) {
+    return cleanFilePath(directMatch[1]);
+  }
 
   // Handle double-escaped JSON (old format)
   if (typeof content === 'string' && content.startsWith('"{') && content.endsWith('}"')) {
@@ -423,32 +462,46 @@ export function extractFileContent(
   const contentStr = normalizeContentToString(content);
   if (!contentStr) return null;
 
-  // First, check if content is already a parsed object (new format after double-escape fix)
-  if (typeof content === 'object' && content !== null) {
-    try {
-      // Check if it's a direct object with content field
-      if ('content' in content && typeof content.content === 'string') {
-        const tagName = toolType === 'create-file' ? 'create-file' : 'full-file-rewrite';
-        const contentMatch = content.content.match(
-          new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'),
-        );
-        if (contentMatch && contentMatch[1]) {
-          return processFileContent(contentMatch[1]);
+  try {
+    // Try to parse content as JSON first
+    const parsedContent = JSON.parse(contentStr);
+    if (parsedContent.content) {
+      // Check if it's the new XML format
+      if (isNewXmlFormat(parsedContent.content)) {
+        const toolCalls = parseXmlToolCalls(parsedContent.content);
+        if (toolCalls.length > 0 && toolCalls[0].parameters.file_contents) {
+          return processFileContent(toolCalls[0].parameters.file_contents);
         }
       }
-    } catch (e) {
-      // Continue with string parsing if object parsing fails
+      
+      // Fall back to old format
+      const tagName = toolType === 'create-file' ? 'create-file' : 'full-file-rewrite';
+      const fileContentMatch = parsedContent.content.match(
+        new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'),
+      );
+      if (fileContentMatch) {
+        return processFileContent(fileContentMatch[1]);
+      }
+    }
+  } catch (e) {
+    // Fall back to direct regex search if JSON parsing fails
+  }
+
+  // Check if it's the new XML format in raw content
+  if (isNewXmlFormat(contentStr)) {
+    const toolCalls = parseXmlToolCalls(contentStr);
+    if (toolCalls.length > 0 && toolCalls[0].parameters.file_contents) {
+      return processFileContent(toolCalls[0].parameters.file_contents);
     }
   }
 
-  // Fallback to string-based extraction (old format)
+  // Direct regex search in the content string (old format)
   const tagName = toolType === 'create-file' ? 'create-file' : 'full-file-rewrite';
-  const contentMatch = contentStr.match(
+  const fileContentMatch = contentStr.match(
     new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'),
   );
-
-  if (contentMatch && contentMatch[1]) {
-    return processFileContent(contentMatch[1]);
+  if (fileContentMatch) {
+    return processFileContent(fileContentMatch[1]);
   }
 
   return null;
@@ -516,6 +569,25 @@ export function extractBrowserOperation(toolName: string | undefined): string {
 export function extractSearchQuery(content: string | object | undefined | null): string | null {
   const contentStr = normalizeContentToString(content);
   if (!contentStr) return null;
+
+  // First, look for ToolResult pattern in the content string
+  const toolResultMatch = contentStr.match(
+    /ToolResult\(.*?output='([\s\S]*?)'.*?\)/,
+  );
+  
+  if (toolResultMatch) {
+    try {
+      // Parse the output JSON from ToolResult
+      const outputJson = JSON.parse(toolResultMatch[1]);
+      
+      // Check if this is the new Tavily response format with query field
+      if (outputJson.query && typeof outputJson.query === 'string') {
+        return outputJson.query;
+      }
+    } catch (e) {
+      // Continue with other extraction methods
+    }
+  }
 
   let contentToSearch = contentStr; // Start with the normalized content
 
@@ -597,31 +669,38 @@ export function extractUrlsAndTitles(
 ): Array<{ title: string; url: string; snippet?: string }> {
   const results: Array<{ title: string; url: string; snippet?: string }> = [];
 
-  // First try to handle the case where content contains fragments of JSON objects
-  // This pattern matches both complete and partial result objects
-  const jsonFragmentPattern =
-    /"?title"?\s*:\s*"([^"]+)"[^}]*"?url"?\s*:\s*"?(https?:\/\/[^",\s]+)"?|https?:\/\/[^",\s]+[",\s]*"?title"?\s*:\s*"([^"]+)"/g;
-  let fragmentMatch;
-
-  while ((fragmentMatch = jsonFragmentPattern.exec(content)) !== null) {
-    // Extract title and URL from the matched groups
-    // Groups can match in different orders depending on the fragment format
-    const title = fragmentMatch[1] || fragmentMatch[3] || '';
-    let url = fragmentMatch[2] || '';
-
-    // If no URL was found in the JSON fragment pattern but we have a title,
-    // try to find a URL on its own line above the title
-    if (!url && title) {
-      // Look backwards from the match position
-      const beforeText = content.substring(0, fragmentMatch.index);
-      const urlMatch = beforeText.match(/https?:\/\/[^\s",]+\s*$/);
-      if (urlMatch && urlMatch[0]) {
-        url = urlMatch[0].trim();
-      }
+  // Try to parse as JSON first to extract proper results
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed)) {
+      return parsed.map(result => ({
+        title: result.title || '',
+        url: result.url || '',
+        snippet: result.content || result.snippet || '',
+      }));
     }
+    if (parsed.results && Array.isArray(parsed.results)) {
+      return parsed.results.map(result => ({
+        title: result.title || '',
+        url: result.url || '',
+        snippet: result.content || '',
+      }));
+    }
+  } catch (e) {
+    // Not valid JSON, continue with regex extraction
+  }
+
+  // Look for properly formatted JSON objects with title and url
+  const jsonObjectPattern = /\{\s*"title"\s*:\s*"([^"]+)"\s*,\s*"url"\s*:\s*"(https?:\/\/[^"]+)"\s*(?:,\s*"content"\s*:\s*"([^"]*)")?\s*\}/g;
+  let objectMatch;
+
+  while ((objectMatch = jsonObjectPattern.exec(content)) !== null) {
+    const title = objectMatch[1];
+    const url = objectMatch[2];
+    const snippet = objectMatch[3] || '';
 
     if (url && title && !results.some((r) => r.url === url)) {
-      results.push({ title, url });
+      results.push({ title, url, snippet });
     }
   }
 
@@ -1015,8 +1094,50 @@ export function extractSearchResults(
   const contentStr = normalizeContentToString(content);
   if (!contentStr) return [];
 
-  // First check if it's the new Tavily response format
-  try {
+    try {
+    // Instead of trying to parse the complex ToolResult JSON, 
+    // let's look for the results array pattern directly in the content
+    
+    // Look for the results array pattern within the content
+    const resultsPattern = /"results":\s*\[([^\]]*(?:\[[^\]]*\][^\]]*)*)\]/;
+    const resultsMatch = contentStr.match(resultsPattern);
+    
+    if (resultsMatch) {
+      try {
+        // Extract just the results array and parse it
+        const resultsArrayStr = '[' + resultsMatch[1] + ']';
+        const results = JSON.parse(resultsArrayStr);
+        
+        if (Array.isArray(results)) {
+          return results.map(result => ({
+            title: result.title || '',
+            url: result.url || '',
+            snippet: result.content || '',
+          }));
+        }
+      } catch (e) {
+        console.warn('Failed to parse results array:', e);
+      }
+    }
+    
+    // Fallback: Look for individual result objects
+    const resultObjectPattern = /\{\s*"url":\s*"([^"]+)"\s*,\s*"title":\s*"([^"]+)"\s*,\s*"content":\s*"([^"]*)"[^}]*\}/g;
+    const results = [];
+    let match;
+    
+    while ((match = resultObjectPattern.exec(contentStr)) !== null) {
+      results.push({
+        url: match[1],
+        title: match[2],
+        snippet: match[3],
+      });
+    }
+    
+    if (results.length > 0) {
+      return results;
+    }
+
+    // Try parsing the entire content as JSON (for direct Tavily responses)
     const parsedContent = JSON.parse(contentStr);
     
     // Check if this is the new Tavily response format
@@ -1031,28 +1152,16 @@ export function extractSearchResults(
     // Continue with existing logic for backward compatibility
     if (parsedContent.content && typeof parsedContent.content === 'string') {
       // Look for a tool_result tag (with attributes)
-      const toolResultMatch = parsedContent.content.match(
+      const toolResultTagMatch = parsedContent.content.match(
         /<tool_result[^>]*>\s*<web-search[^>]*>([\s\S]*?)<\/web-search>\s*<\/tool_result>/,
       );
-      if (toolResultMatch) {
+      if (toolResultTagMatch) {
         // Try to parse the results array
         try {
-          return JSON.parse(toolResultMatch[1]);
+          return JSON.parse(toolResultTagMatch[1]);
         } catch (e) {
           // Fallback to regex extraction of URLs and titles
-          return extractUrlsAndTitles(toolResultMatch[1]);
-        }
-      }
-
-      // Look for ToolResult pattern
-      const outputMatch = parsedContent.content.match(
-        /ToolResult\(.*?output='([\s\S]*?)'.*?\)/,
-      );
-      if (outputMatch) {
-        try {
-          return JSON.parse(outputMatch[1]);
-        } catch (e) {
-          return extractUrlsAndTitles(outputMatch[1]);
+          return extractUrlsAndTitles(toolResultTagMatch[1]);
         }
       }
 
@@ -1122,6 +1231,11 @@ export function getToolComponent(toolName: string): string {
     case 'execute-data-provider-call':
     case 'get-data-provider-endpoints':
       return 'DataProviderToolView';
+
+
+    //Deploy
+    case 'deploy':
+      return 'DeployToolView';
 
     // Default
     default:
@@ -1391,3 +1505,42 @@ export const getFileIconAndColor = (filename: string) => {
       };
   }
 };
+
+/**
+ * Extract tool data from content using the new parser with backwards compatibility
+ */
+export function extractToolData(content: any): {
+  toolResult: ParsedToolResult | null;
+  arguments: Record<string, any>;
+  filePath: string | null;
+  fileContent: string | null;
+  command: string | null;
+  url: string | null;
+  query: string | null;
+} {
+  const toolResult = parseToolResult(content);
+  
+  if (toolResult) {
+    const args = toolResult.arguments || {};
+    return {
+      toolResult,
+      arguments: args,
+      filePath: args.file_path || args.path || null,
+      fileContent: args.file_contents || args.content || null,
+      command: args.command || null,
+      url: args.url || null,
+      query: args.query || null,
+    };
+  }
+
+  // Fallback to legacy parsing if new format not detected
+  return {
+    toolResult: null,
+    arguments: {},
+    filePath: null,
+    fileContent: null,
+    command: null,
+    url: null,
+    query: null,
+  };
+}
